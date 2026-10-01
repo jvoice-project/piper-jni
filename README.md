@@ -69,6 +69,20 @@ try (var voice = piper.loadVoice(Paths.get("/path/to/en_US-lessac-medium.onnx"),
 }
 ```
 
+### Audio Output Specification
+
+When synthesizing text via `piper.textToAudio()`, the Java API layer produces audio with the following specification:
+
+| Attribute              | Value / Format                                                                             |
+|:-----------------------|:-------------------------------------------------------------------------------------------|
+| **Container / Header** | Raw PCM stream (no header). Wrap with `AudioSystem.write` for RIFF WAV (`.wav`).           |
+| **Data Type**          | `short[]` (Java 16-bit primitive array)                                                    |
+| **Encoding Format**    | 16-bit Signed Linear PCM (`PCM_SIGNED`)                                                    |
+| **Sample Value Range** | `-32768` to `32767`                                                                        |
+| **Channels**           | **1** (Mono)                                                                               |
+| **Sample Rate**        | Model-dependent, retrieved via `voice.getSampleRate()` (e.g. `22050`, `16000`, `24000` Hz) |
+| **Endianness**         | Host native in memory; **Little-Endian** when serialized to `.wav` file                    |
+
 ## Development
 
 You need to have Java >= 17 and C++ setup.

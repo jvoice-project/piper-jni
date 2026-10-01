@@ -65,9 +65,9 @@ public class PiperVoice extends PiperJNI.JNIRef {
     }
 
     /**
-     * Get the generated audio sample rate.
+     * Get the generated audio sample rate in Hz (e.g. 16 kHz, 22.05 kHz, 24 kHz).
      *
-     * @return the audio sample rate for this voice
+     * @return the audio sample rate in Hz for this voice model
      */
     public int getSampleRate() {
         assertAvailable();
