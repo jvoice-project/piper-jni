@@ -65,7 +65,7 @@ public class PiperJNI implements AutoCloseable {
     }
 
     /**
-     * Get piper version.
+     * Get Piper version.
      *
      * @return piper library version.
      */
@@ -75,7 +75,9 @@ public class PiperJNI implements AutoCloseable {
     }
 
     /**
-     * Initializes the piper instance configuration. Should be called before using the instance.
+     * Initializes the Piper instance configuration.
+     *
+     * <p>Must be called before using the instance.
      *
      * @throws IOException if initialization fails.
      */
@@ -84,7 +86,9 @@ public class PiperJNI implements AutoCloseable {
     }
 
     /**
-     * Initializes the piper instance configuration. Should be called before using the instance.
+     * Initializes the Piper instance configuration.
+     *
+     * <p>Must be called before using the instance.
      *
      * @param useESpeakPhonemes Support voices with ESpeak phonemes.
      * @throws IOException if initialization fails.
@@ -104,17 +108,17 @@ public class PiperJNI implements AutoCloseable {
         this.initialized = true;
     }
 
-    /** Unload current configuration if any. */
+    /** Unload current configuration (if any). */
     public void terminate() {
         this.currentESpeakDataPath = null;
         this.initialized = false;
     }
 
     /**
-     * Loads piper voice model and config.
+     * Loads Piper voice model and configuration.
      *
-     * @param modelPath model file path
-     * @param modelConfigPath model config file path
+     * @param modelPath model file path (<code>.onnx</code>)
+     * @param modelConfigPath model configuration file path (<code>.onnx.json</code>)
      * @return a {@link PiperVoice} instance
      * @throws FileNotFoundException if models or config doesn't exist
      * @throws NotInitialized if piper was not initialized
@@ -125,14 +129,14 @@ public class PiperJNI implements AutoCloseable {
     }
 
     /**
-     * Loads piper voice model and config.
+     * Loads Piper voice model and configuration.
      *
-     * @param modelPath model file path
-     * @param modelConfigPath model config file path
-     * @param speakerId Speaker id or -1.
+     * @param modelPath model file path (<code>.onnx</code>)
+     * @param modelConfigPath model configuration file path (<code>.onnx.json</code>)
+     * @param speakerId speaker id for multi-speaker voices or <code>-1</code>
      * @return a {@link PiperVoice} instance
-     * @throws FileNotFoundException if models or config doesn't exist
-     * @throws NotInitialized if piper was not initialized
+     * @throws FileNotFoundException if model or configuration doesn't exist
+     * @throws NotInitialized if Piper was not initialized
      */
     public PiperVoice loadVoice(Path modelPath, Path modelConfigPath, long speakerId)
             throws FileNotFoundException, NotInitialized {
@@ -150,12 +154,16 @@ public class PiperJNI implements AutoCloseable {
     }
 
     /**
-     * Convert text to audio using the provided voice.
+     * Convert text to audio using the provided voice synchronously.
      *
-     * @param voice {@link PiperVoice} instance to use.
-     * @param text Text to speak.
-     * @return The audio samples
-     * @throws IOException If generation fails.
+     * <p>The returned audio data is formatted as raw 16-bit signed PCM mono audio samples. The
+     * sample rate depends on the voice model configuration and can be retrieved via {@link
+     * PiperVoice#getSampleRate()}.
+     *
+     * @param voice {@link PiperVoice} instance to use
+     * @param text text to speak
+     * @return an array of 16-bit signed PCM mono audio samples ({@code short[]})
+     * @throws IOException if generation fails
      * @throws NotInitialized if Piper is not initialized
      */
     public short[] textToAudio(PiperVoice voice, String text) throws IOException, NotInitialized {
@@ -163,12 +171,16 @@ public class PiperJNI implements AutoCloseable {
     }
 
     /**
-     * Convert text to audio using the provided voice and emit segments asynchronously.
+     * Convert text to audio using the provided voice and emit audio segments asynchronously.
      *
-     * @param voice {@link PiperVoice} instance to use.
-     * @param text Text to speak.
-     * @param audioCallback Callback for each audio segment.
-     * @throws IOException If generation fails.
+     * <p>Audio segments are delivered to the {@link AudioCallback} as raw 16-bit signed PCM mono
+     * audio samples. The sample rate depends on the voice model configuration and can be retrieved
+     * via {@link PiperVoice#getSampleRate()}.
+     *
+     * @param voice {@link PiperVoice} instance to use
+     * @param text text to speak
+     * @param audioCallback Callback for each generated audio segment
+     * @throws IOException if generation fails
      * @throws NotInitialized if Piper is not initialized
      */
     public void textToAudio(PiperVoice voice, String text, AudioCallback audioCallback)
@@ -194,16 +206,16 @@ public class PiperJNI implements AutoCloseable {
     }
 
     /**
-     * Checks if piper was initialized
+     * Checks if Piper is initialized.
      *
-     * @return true if piper was initialized
+     * @return <code>true</code> if Piper was initialized
      */
     public boolean isInitialized() {
         return initialized;
     }
 
     /**
-     * Register the native library, should be called at first.
+     * Loads the native library, should be called at first.
      *
      * @throws IOException when unable to load the native library
      */
@@ -264,12 +276,12 @@ public class PiperJNI implements AutoCloseable {
         terminate();
     }
 
-    /** Callback for streamed audio. */
+    /** Callback for streamed audio segments. */
     public interface AudioCallback {
         /**
          * Called once on each generated voice segment.
          *
-         * @param audioSamples The segment samples.
+         * @param audioSamples an array of raw 16-bit signed PCM mono audio samples
          */
         void onAudio(short[] audioSamples);
     }
