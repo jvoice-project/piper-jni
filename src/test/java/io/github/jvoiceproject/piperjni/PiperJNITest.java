@@ -20,6 +20,7 @@
 package io.github.jvoiceproject.piperjni;
 
 import java.io.ByteArrayInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -48,32 +49,20 @@ import org.junit.jupiter.api.Test;
  * @author Miguel Álvarez Díez - Initial contribution
  */
 public class PiperJNITest {
-    private static PiperJNI piper;
-
     @BeforeAll
     public static void before() throws IOException {
-        piper = new PiperJNI();
+        PiperJNI.loadLibrary();
     }
 
     @Test
     public void getPiperVersion() {
-        var version = piper.getPiperVersion();
+        var version = PiperJNI.getPiperVersion();
         assertNotNull(version, "version is defined");
         System.out.println("Piper version: " + version);
     }
 
     @Test
-    public void initializePiper() throws IOException {
-        try {
-            piper.initialize(true);
-        } finally {
-            piper.close();
-        }
-    }
-
-    @Test
-    public void createPiperVoice()
-            throws IOException, ConfigurationException, PiperJNI.NotInitialized {
+    public void createPiperVoice() throws ConfigurationException, FileNotFoundException {
         String voiceModel = System.getenv("VOICE_MODEL");
         String voiceModelConfig = System.getenv("VOICE_MODEL_CONFIG");
         if (voiceModel == null || voiceModel.isBlank()) {
@@ -82,19 +71,13 @@ public class PiperJNITest {
         if (voiceModelConfig == null || voiceModelConfig.isBlank()) {
             throw new ConfigurationException("env var VOICE_MODEL_CONFIG is required");
         }
-        try {
-            piper.initialize();
-            try (var voice = piper.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig))) {
-                assertNotNull(voice);
-            }
-        } finally {
-            piper.close();
+        try (var voice = PiperJNI.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig))) {
+            assertNotNull(voice);
         }
     }
 
     @Test
-    public void createAudioData()
-            throws IOException, PiperJNI.NotInitialized, ConfigurationException {
+    public void createAudioData() throws ConfigurationException, IOException {
         String voiceModel = System.getenv("VOICE_MODEL");
         String voiceModelConfig = System.getenv("VOICE_MODEL_CONFIG");
         String textToSpeak = System.getenv("TEXT_TO_SPEAK");
@@ -111,25 +94,19 @@ public class PiperJNITest {
         if (outputDir == null || outputDir.isBlank()) {
             throw new ConfigurationException("env var OUTPUT_DIR is required");
         }
-        try {
-            piper.initialize(true);
-            try (var voice = piper.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig), 0)) {
-                assertNotNull(voice);
-                int sampleRate = voice.getSampleRate();
-                short[] samples = piper.textToAudio(voice, textToSpeak);
-                assertNotEquals(0, samples.length);
-                Path outPath = Path.of(outputDir, "test.wav");
-                createWAVFile(List.of(samples), sampleRate, outPath);
-                verifyAudioFile(outPath);
-            }
-        } finally {
-            piper.close();
+        try (var voice = PiperJNI.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig), 0)) {
+            assertNotNull(voice);
+            int sampleRate = voice.getSampleRate();
+            short[] samples = voice.textToAudio(textToSpeak);
+            assertNotEquals(0, samples.length);
+            Path outPath = Path.of(outputDir, "test.wav");
+            createWAVFile(List.of(samples), sampleRate, outPath);
+            verifyAudioFile(outPath);
         }
     }
 
     @Test
-    public void streamAudioData()
-            throws IOException, PiperJNI.NotInitialized, ConfigurationException {
+    public void streamAudioData() throws ConfigurationException, IOException {
         String voiceModel = System.getenv("VOICE_MODEL");
         String voiceModelConfig = System.getenv("VOICE_MODEL_CONFIG");
         String textToSpeak = System.getenv("TEXT_TO_SPEAK");
@@ -146,27 +123,21 @@ public class PiperJNITest {
         if (outputDir == null || outputDir.isBlank()) {
             throw new ConfigurationException("env var OUTPUT_DIR is required");
         }
-        try {
-            piper.initialize(true);
-            try (var voice = piper.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig))) {
-                assertNotNull(voice);
-                int sampleRate = voice.getSampleRate();
-                final ArrayList<short[]> audioSamplesChunks = new ArrayList<>();
-                piper.textToAudio(voice, textToSpeak, audioSamplesChunks::add);
-                assertFalse(audioSamplesChunks.isEmpty());
-                assertNotEquals(0, audioSamplesChunks.get(0).length);
-                Path outPath = Path.of(outputDir, "test-stream.wav");
-                createWAVFile(audioSamplesChunks, sampleRate, outPath);
-                verifyAudioFile(outPath);
-            }
-        } finally {
-            piper.close();
+        try (var voice = PiperJNI.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig))) {
+            assertNotNull(voice);
+            int sampleRate = voice.getSampleRate();
+            final ArrayList<short[]> audioSamplesChunks = new ArrayList<>();
+            voice.textToAudio(textToSpeak, audioSamplesChunks::add);
+            assertFalse(audioSamplesChunks.isEmpty());
+            assertNotEquals(0, audioSamplesChunks.get(0).length);
+            Path outPath = Path.of(outputDir, "test-stream.wav");
+            createWAVFile(audioSamplesChunks, sampleRate, outPath);
+            verifyAudioFile(outPath);
         }
     }
 
     @Test
-    public void createAudioDataWithOptions()
-            throws IOException, PiperJNI.NotInitialized, ConfigurationException {
+    public void createAudioDataWithOptions() throws ConfigurationException, IOException {
         String voiceModel = System.getenv("VOICE_MODEL");
         String voiceModelConfig = System.getenv("VOICE_MODEL_CONFIG");
         String textToSpeak = System.getenv("TEXT_TO_SPEAK");
@@ -179,36 +150,30 @@ public class PiperJNITest {
         if (textToSpeak == null || textToSpeak.isBlank()) {
             throw new ConfigurationException("env var TEXT_TO_SPEAK is required");
         }
-        try {
-            piper.initialize(true);
-            try (var voice = piper.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig))) {
-                assertNotNull(voice);
-                PiperSynthesizeOptions defaultOpts = voice.getDefaultOptions();
-                assertNotNull(defaultOpts);
+        try (var voice = PiperJNI.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig))) {
+            assertNotNull(voice);
+            PiperSynthesizeOptions defaultOpts = voice.getOptions();
+            assertNotNull(defaultOpts);
 
-                // Test speaking faster (lengthScale = 0.5f)
-                PiperSynthesizeOptions fastOpts = defaultOpts.withLengthScale(0.5f);
-                short[] samplesFast = piper.textToAudio(voice, textToSpeak, fastOpts);
-                assertNotEquals(0, samplesFast.length);
+            // Test speaking faster (lengthScale = 0.5f)
+            PiperSynthesizeOptions fastOpts = defaultOpts.withLengthScale(0.5f);
+            short[] samplesFast = voice.textToAudio(textToSpeak, fastOpts);
+            assertNotEquals(0, samplesFast.length);
 
-                // Test speaking slower (lengthScale = 2.0f)
-                PiperSynthesizeOptions slowOpts = defaultOpts.withLengthScale(2.0f);
-                short[] samplesSlow = piper.textToAudio(voice, textToSpeak, slowOpts);
-                assertNotEquals(0, samplesSlow.length);
+            // Test speaking slower (lengthScale = 2.0f)
+            PiperSynthesizeOptions slowOpts = defaultOpts.withLengthScale(2.0f);
+            short[] samplesSlow = voice.textToAudio(textToSpeak, slowOpts);
+            assertNotEquals(0, samplesSlow.length);
 
-                // Slower speech should produce more audio samples than faster speech
-                assertTrue(
-                        samplesSlow.length > samplesFast.length,
-                        "Slower speech should generate more samples than faster speech");
-            }
-        } finally {
-            piper.close();
+            // Slower speech should produce more audio samples than faster speech
+            assertTrue(
+                    samplesSlow.length > samplesFast.length,
+                    "Slower speech should generate more samples than faster speech");
         }
     }
 
     @Test
-    public void closedVoiceThrows()
-            throws IOException, ConfigurationException, PiperJNI.NotInitialized {
+    public void closedVoiceThrows() throws ConfigurationException, FileNotFoundException {
         String voiceModel = System.getenv("VOICE_MODEL");
         String voiceModelConfig = System.getenv("VOICE_MODEL_CONFIG");
         if (voiceModel == null || voiceModel.isBlank()) {
@@ -217,17 +182,12 @@ public class PiperJNITest {
         if (voiceModelConfig == null || voiceModelConfig.isBlank()) {
             throw new ConfigurationException("env var VOICE_MODEL_CONFIG is required");
         }
-        try {
-            piper.initialize(true);
-            var voice = piper.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig));
-            voice.close();
-            assertThrows(RuntimeException.class, voice::getSampleRate);
-            assertThrows(RuntimeException.class, voice::getUsesESpeakPhonemes);
-            assertThrows(RuntimeException.class, voice::getDefaultOptions);
-            assertThrows(RuntimeException.class, () -> piper.textToAudio(voice, "Hello"));
-        } finally {
-            piper.close();
-        }
+        var voice = PiperJNI.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig));
+        voice.close();
+        assertThrows(IllegalStateException.class, voice::getSampleRate);
+        assertThrows(IllegalStateException.class, voice::getUsesESpeakPhonemes);
+        assertThrows(IllegalStateException.class, voice::getOptions);
+        assertThrows(IllegalStateException.class, () -> voice.textToAudio("Hello"));
     }
 
     private void createWAVFile(List<short[]> sampleChunks, long sampleRate, Path outFilePath) {
