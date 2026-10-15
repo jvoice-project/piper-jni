@@ -35,10 +35,12 @@ import java.nio.file.Path;
  * @author Miguel Álvarez Díez - Initial contribution
  * @author Florian Hotze - Refactored to use {@link PiperBinding} Made thread-safe
  */
-public class PiperJNI {
+public final class PiperJNI {
 
     private static volatile boolean libraryLoaded;
     private static volatile Path eSpeakDataPath;
+
+    private PiperJNI() {}
 
     /**
      * Get the Piper version.
