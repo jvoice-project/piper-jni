@@ -104,14 +104,29 @@ else()
 endif()
 
 set(ONNXRUNTIME_URL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/${ONNXRUNTIME_PREFIX}.${ONNXRUNTIME_EXT}")
-set(ONNXRUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}/onnxruntime")
+set(ONNXRUNTIME_EXTRACT_DIR "${CMAKE_CURRENT_BINARY_DIR}/onnxruntime")
+set(ONNXRUNTIME_DIR "${ONNXRUNTIME_EXTRACT_DIR}/${ONNXRUNTIME_PREFIX}")
 
 if(NOT EXISTS "${ONNXRUNTIME_DIR}")
     message(STATUS "Downloading ONNX Runtime: ${ONNXRUNTIME_URL}")
-    file(DOWNLOAD "${ONNXRUNTIME_URL}" "${CMAKE_CURRENT_BINARY_DIR}/ort_pkg.${ONNXRUNTIME_EXT}")
-    file(ARCHIVE_EXTRACT INPUT "${CMAKE_CURRENT_BINARY_DIR}/ort_pkg.${ONNXRUNTIME_EXT}" DESTINATION "${ONNXRUNTIME_DIR}")
-    # Adjust for nested folder in archive
-    set(ONNXRUNTIME_DIR "${ONNXRUNTIME_DIR}/${ONNXRUNTIME_PREFIX}")
+
+    file(DOWNLOAD
+        "${ONNXRUNTIME_URL}"
+        "${CMAKE_CURRENT_BINARY_DIR}/ort_pkg.${ONNXRUNTIME_EXT}"
+        STATUS download_status
+        LOG download_log
+    )
+
+    list(GET download_status 0 error_code)
+    list(GET download_status 1 error_message)
+    if(NOT error_code EQUAL 0)
+        message(FATAL_ERROR "Failed to download ONNX Runtime from ${ONNXRUNTIME_URL}: ${error_message}\n${download_log}")
+    endif()
+
+    file(ARCHIVE_EXTRACT
+        INPUT "${CMAKE_CURRENT_BINARY_DIR}/ort_pkg.${ONNXRUNTIME_EXT}"
+        DESTINATION "${ONNXRUNTIME_EXTRACT_DIR}"
+    )
 endif()
 
 # JNI & Compiler Setup
