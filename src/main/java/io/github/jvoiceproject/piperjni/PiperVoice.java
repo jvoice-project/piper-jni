@@ -169,7 +169,7 @@ public class PiperVoice implements AutoCloseable {
     }
 
     /**
-     * Convert text to audio using the provided voice and emit audio segments asynchronously.
+     * Convert text to audio using the provided voice and streams audio segments.
      *
      * <p>Audio segments are delivered to the {@link AudioCallback} as raw 16-bit signed PCM mono
      * audio samples. The sample rate depends on the voice model configuration and can be retrieved
@@ -178,7 +178,6 @@ public class PiperVoice implements AutoCloseable {
      * @param text text to speak
      * @param audioCallback Callback for each generated audio segment
      * @throws IllegalStateException if the voice is already closed
-     * @throws IllegalStateException if nested or re-entrant synthesis calls are attempted
      * @throws IOException if audio synthesis fails
      */
     public void textToAudio(String text, AudioCallback audioCallback)
@@ -187,7 +186,7 @@ public class PiperVoice implements AutoCloseable {
     }
 
     /**
-     * Convert text to audio using the provided voice and emit audio segments asynchronously.
+     * Convert text to audio using the provided voice and streams audio segments.
      *
      * <p>Audio segments are delivered to the {@link AudioCallback} as raw 16-bit signed PCM mono
      * audio samples. The sample rate depends on the voice model configuration and can be retrieved
@@ -207,18 +206,18 @@ public class PiperVoice implements AutoCloseable {
     }
 
     /**
-     * Implements the audio synthesis loop for both synchronous and asynchronous modes, using {@link
+     * Implements the audio synthesis loop for both synchronous and streaming modes, using {@link
      * PiperBinding#piper_synthesize_start} and {@link PiperBinding#piper_synthesize_next}.
      *
      * <p>A {@link PiperVoice} instance can only synthesize audio for one text at a time. Audio
      * synthesis is synchronized on an instance-level lock.
      *
      * @param text text to speak
-     * @param audioCallback callback for audio segments (for asynchronous mode), or null for
+     * @param audioCallback callback for audio segments (for streaming mode), or null for
      *     synchronous mode
      * @param options custom synthesis options or null for defaults
      * @return an array of 16-bit signed PCM mono audio samples ({@code short[]}) in synchronous
-     *     mode, or null in asynchronous mode
+     *     mode, or null in streaming mode
      * @throws IllegalStateException if the voice is already closed
      * @throws IllegalStateException if nested or re-entrant synthesis calls are attempted
      * @throws IOException if audio synthesis fails
