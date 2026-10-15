@@ -77,7 +77,9 @@ public class PiperVoice implements AutoCloseable {
                             modelConfigPath.toAbsolutePath().toString(),
                             effectiveESpeakDataPath);
         } catch (IOException e) {
-            throw new FileNotFoundException("Failed to load voice model from " + modelPath);
+            throw (FileNotFoundException)
+                    new FileNotFoundException("Failed to load voice model from " + modelPath)
+                            .initCause(e);
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Failed to load voice model from " + modelPath, e);
         }
