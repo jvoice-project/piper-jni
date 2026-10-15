@@ -222,7 +222,7 @@ JNIEXPORT jobject JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBi
             return nullptr;
         }
         if (res != PIPER_OK) {
-            throwJava(env, "java/lang/RuntimeException", "Failed to synthesize next chunk");
+            throwJava(env, "java/lang/IOException", "Failed to synthesize next chunk");
             return nullptr;
         }
 
