@@ -21,6 +21,8 @@ package io.github.jvoiceproject.piperjni.internal;
 
 import io.github.jvoiceproject.piperjni.PiperSynthesizeOptions;
 
+import java.io.IOException;
+
 /**
  * JNI binding for Piper.
  *
@@ -49,9 +51,11 @@ public final class PiperBinding {
      * @param configPath path to JSON voice config file or null
      * @param espeakDataPath path to the espeak-ng data directory
      * @return pointer address to {@code piper_synthesizer*} instance, or 0 on failure
+     * @throws IOException if the model or the configuration file doesn't exist
      */
     public static native long piper_create(
-            String modelPath, String configPath, String espeakDataPath);
+            String modelPath, String configPath, String espeakDataPath)
+            throws IOException, IllegalArgumentException;
 
     /**
      * Free resources for Piper synthesizer.

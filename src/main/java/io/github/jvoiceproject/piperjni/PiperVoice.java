@@ -19,39 +19,77 @@
  */
 package io.github.jvoiceproject.piperjni;
 
+import io.github.jvoiceproject.piperjni.internal.PiperBinding;
+
+import java.io.FileNotFoundException;
 import java.nio.file.Path;
 
 /**
  * The class {@link PiperVoice} represents a loaded voice model.
  *
  * @author Miguel Álvarez Díez - Initial contribution
+ * @author Florian Hotze - Refactored to use {@link PiperBinding}
  */
-public class PiperVoice extends PiperJNI.JNIRef {
+public class PiperVoice implements AutoCloseable {
 
-    private final PiperJNI piper;
+    private long nativeHandle;
+    private boolean closed = false;
+    private final PiperSynthesizeOptions defaultOptions;
 
     /**
      * Creates a new voice instance.
      *
-     * @param piper the PiperJNI instance
-     * @param espeakDataPath the eSpeak NG data directory path
      * @param modelPath the voice model path
      * @param modelConfigPath the voice model config path
+     * @param espeakDataPath the eSpeak NG data directory path or null if eSpeak phonemes shouldn't be used
      * @param speakerId the speaker id
+     * @throws java.io.FileNotFoundException if loading the voice model fails
      */
-    protected PiperVoice(
-            PiperJNI piper,
-            String espeakDataPath,
-            Path modelPath,
-            Path modelConfigPath,
-            long speakerId) {
-        super(
-                piper.loadVoice(
-                        espeakDataPath,
-                        modelPath.toAbsolutePath().toString(),
-                        modelConfigPath.toAbsolutePath().toString(),
-                        speakerId));
-        this.piper = piper;
+    protected PiperVoice(Path modelPath, Path modelConfigPath, Path espeakDataPath, int speakerId)
+            throws FileNotFoundException {
+        Objects.requireNonNull(modelPath, "Model path can not be null");
+        Objects.requireNonNull(modelConfigPath, "Model config path can not be null");
+        String effectiveESpeakDataPath = espeakDataPath != null ? espeakDataPath.toAbsolutePath().toString() : null;
+
+        try {
+            this.nativeHandle =
+                    PiperBinding.piper_create(
+                            modelPath.toAbsolutePath().toString(),
+                            modelConfigPath.toAbsolutePath().toString(),
+        } catch (Exception e) {
+                            effectiveESpeakDataPath);
+            throw new FileNotFoundException("Failed to load voice model from " + modelPath);
+        }
+        if (this.nativeHandle == 0) {
+            throw new FileNotFoundException("Failed to load voice model from " + modelPath);
+        }
+        PiperSynthesizeOptions initialOptions =
+                PiperBinding.piper_default_synthesize_options(this.nativeHandle);
+        if (speakerId > -1 && initialOptions != null) {
+            this.defaultOptions = initialOptions.withSpeakerId(speakerId);
+        } else {
+            this.defaultOptions = initialOptions;
+        }
+    }
+
+    /**
+     * Get the native synthesizer pointer address.
+     *
+     * @return the native pointer address
+     */
+    long getNativePointer() {
+        assertOpen();
+        return nativeHandle;
+    }
+
+    /**
+     * Get default synthesis options for this voice.
+     *
+     * @return the default synthesis options
+     */
+    public PiperSynthesizeOptions getDefaultOptions() {
+        assertOpen();
+        return defaultOptions;
     }
 
     /**
@@ -60,8 +98,8 @@ public class PiperVoice extends PiperJNI.JNIRef {
      * @return true if the voice uses eSpeak phonemes, false otherwise
      */
     public boolean getUsesESpeakPhonemes() {
-        assertAvailable();
-        return piper.voiceUsesESpeakPhonemes(this.ref);
+        assertOpen();
+        return PiperBinding.piper_uses_espeak_phonemes(nativeHandle);
     }
 
     /**
@@ -70,15 +108,28 @@ public class PiperVoice extends PiperJNI.JNIRef {
      * @return the audio sample rate in Hz for this voice model
      */
     public int getSampleRate() {
-        assertAvailable();
-        return piper.voiceSampleRate(this.ref);
+        assertOpen();
+        return PiperBinding.piper_get_sample_rate(nativeHandle);
     }
 
     @Override
     public void close() {
-        if (!isReleased()) {
-            piper.freeVoice(this.ref);
-            release();
+        if (!closed) {
+            if (nativeHandle != 0) {
+                PiperBinding.piper_free(nativeHandle);
+                nativeHandle = 0;
+            }
+            closed = true;
+        }
+    }
+
+    public boolean isClosed() {
+        return closed;
+    }
+
+    void assertOpen() {
+        if (closed) {
+            throw new IllegalStateException("PiperVoice has already been closed.");
         }
     }
 }

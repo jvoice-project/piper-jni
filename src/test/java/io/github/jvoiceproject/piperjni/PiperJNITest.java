@@ -38,6 +38,7 @@ import javax.sound.sampled.UnsupportedAudioFileException;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.BeforeAll;
@@ -158,6 +159,72 @@ public class PiperJNITest {
                 createWAVFile(audioSamplesChunks, sampleRate, outPath);
                 verifyAudioFile(outPath);
             }
+        } finally {
+            piper.close();
+        }
+    }
+
+    @Test
+    public void createAudioDataWithOptions()
+            throws IOException, PiperJNI.NotInitialized, ConfigurationException {
+        String voiceModel = System.getenv("VOICE_MODEL");
+        String voiceModelConfig = System.getenv("VOICE_MODEL_CONFIG");
+        String textToSpeak = System.getenv("TEXT_TO_SPEAK");
+        if (voiceModel == null || voiceModel.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL is required");
+        }
+        if (voiceModelConfig == null || voiceModelConfig.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL_CONFIG is required");
+        }
+        if (textToSpeak == null || textToSpeak.isBlank()) {
+            throw new ConfigurationException("env var TEXT_TO_SPEAK is required");
+        }
+        try {
+            piper.initialize(true);
+            try (var voice = piper.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig))) {
+                assertNotNull(voice);
+                PiperSynthesizeOptions defaultOpts = voice.getDefaultOptions();
+                assertNotNull(defaultOpts);
+
+                // Test speaking faster (lengthScale = 0.5f)
+                PiperSynthesizeOptions fastOpts = defaultOpts.withLengthScale(0.5f);
+                short[] samplesFast = piper.textToAudio(voice, textToSpeak, fastOpts);
+                assertNotEquals(0, samplesFast.length);
+
+                // Test speaking slower (lengthScale = 2.0f)
+                PiperSynthesizeOptions slowOpts = defaultOpts.withLengthScale(2.0f);
+                short[] samplesSlow = piper.textToAudio(voice, textToSpeak, slowOpts);
+                assertNotEquals(0, samplesSlow.length);
+
+                // Slower speech should produce more audio samples than faster speech
+                assertTrue(
+                        samplesSlow.length > samplesFast.length,
+                        "Slower speech should generate more samples than faster speech");
+            }
+        } finally {
+            piper.close();
+        }
+    }
+
+    @Test
+    public void closedVoiceThrows()
+            throws IOException, ConfigurationException, PiperJNI.NotInitialized {
+        String voiceModel = System.getenv("VOICE_MODEL");
+        String voiceModelConfig = System.getenv("VOICE_MODEL_CONFIG");
+        if (voiceModel == null || voiceModel.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL is required");
+        }
+        if (voiceModelConfig == null || voiceModelConfig.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL_CONFIG is required");
+        }
+        try {
+            piper.initialize(true);
+            var voice = piper.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig));
+            voice.close();
+            assertThrows(RuntimeException.class, voice::getSampleRate);
+            assertThrows(RuntimeException.class, voice::getUsesESpeakPhonemes);
+            assertThrows(RuntimeException.class, voice::getDefaultOptions);
+            assertThrows(RuntimeException.class, () -> piper.textToAudio(voice, "Hello"));
         } finally {
             piper.close();
         }

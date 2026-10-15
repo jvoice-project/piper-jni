@@ -19,41 +19,29 @@
  */
 package io.github.jvoiceproject.piperjni;
 
+import io.github.jvoiceproject.piperjni.internal.AudioConverter;
 import io.github.jvoiceproject.piperjni.internal.NativeUtils;
+import io.github.jvoiceproject.piperjni.internal.PiperAudioChunk;
+import io.github.jvoiceproject.piperjni.internal.PiperBinding;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Piper JNI
  *
  * @author Miguel Álvarez Díez - Initial contribution
+ * @author Florian Hotze - Refactored to use {@link PiperBinding}
  */
 public class PiperJNI implements AutoCloseable {
 
     private static boolean libraryLoaded;
-    private String currentESpeakDataPath;
+    private Path currentESpeakDataPath;
     private boolean initialized;
-
-    // region native api
-
-    protected native int loadVoice(
-            String espeakDataPath, String model, String modelConfig, long speakerId);
-
-    protected native void freeVoice(int voiceRef);
-
-    protected native boolean voiceUsesESpeakPhonemes(int voiceRef);
-
-    protected native int voiceSampleRate(int voiceRef);
-
-    private native short[] textToAudio(int voiceRef, String text, AudioCallback audioCallback)
-            throws IOException;
-
-    private native String getVersion();
-
-    // endregion
 
     /**
      * Creates a new Piper instance.
@@ -71,7 +59,7 @@ public class PiperJNI implements AutoCloseable {
      */
     public String getPiperVersion() {
         assertRegistered();
-        return getVersion();
+        return PiperBinding.piper_get_version();
     }
 
     /**
@@ -100,7 +88,7 @@ public class PiperJNI implements AutoCloseable {
             if (path == null) {
                 this.currentESpeakDataPath = null;
             } else {
-                this.currentESpeakDataPath = path.toAbsolutePath().toString();
+                this.currentESpeakDataPath = path.toAbsolutePath();
             }
         } else {
             this.currentESpeakDataPath = null;
@@ -150,7 +138,7 @@ public class PiperJNI implements AutoCloseable {
                 || Files.isDirectory(modelConfigPath)) {
             throw new FileNotFoundException("Model config file is required");
         }
-        return new PiperVoice(this, currentESpeakDataPath, modelPath, modelConfigPath, speakerId);
+        return new PiperVoice(modelPath, modelConfigPath, currentESpeakDataPath, (int) speakerId);
     }
 
     /**
@@ -199,10 +187,60 @@ public class PiperJNI implements AutoCloseable {
             throw new NullPointerException("Text can not be null");
         }
         if (text.isBlank()) {
-            // return empty.
             return new short[] {};
         }
-        return textToAudio(voice.ref, text, audioCallback);
+
+        voice.assertOpen();
+
+        synchronized (voice) {
+            long synth = voice.getNativePointer();
+
+            int startRes =
+                    PiperBinding.piper_synthesize_start(synth, text, voice.getDefaultOptions());
+            if (startRes != PiperBinding.PIPER_OK) {
+                throw new IOException("Failed to start synthesis (error " + startRes + ")");
+            }
+
+            PiperAudioChunk chunk;
+
+            if (audioCallback != null) {
+                while ((chunk = PiperBinding.piper_synthesize_next(synth)) != null) {
+                    if (chunk.numSamples() > 0 && chunk.samples() != null) {
+                        if (chunk.numSamples() != chunk.samples().length) {
+                            throw new IOException(
+                                    "Synthesis returned invalid number of samples: "
+                                            + chunk.numSamples());
+                        }
+                        short[] pcmChunk = AudioConverter.floatToPcm16(chunk.samples());
+                        audioCallback.onAudio(pcmChunk);
+                    }
+                }
+                return null;
+            } else {
+                List<short[]> chunks = new ArrayList<>();
+                int totalSamples = 0;
+                while ((chunk = PiperBinding.piper_synthesize_next(synth)) != null) {
+                    if (chunk.numSamples() > 0 && chunk.samples() != null) {
+                        if (chunk.numSamples() != chunk.samples().length) {
+                            throw new IOException(
+                                    "Synthesis returned invalid number of samples: "
+                                            + chunk.numSamples());
+                        }
+                        short[] pcmChunk = AudioConverter.floatToPcm16(chunk.samples());
+                        chunks.add(pcmChunk);
+                        totalSamples += pcmChunk.length;
+                    }
+                }
+
+                short[] fullAudio = new short[totalSamples];
+                int offset = 0;
+                for (short[] c : chunks) {
+                    System.arraycopy(c, 0, fullAudio, offset, c.length);
+                    offset += c.length;
+                }
+                return fullAudio;
+            }
+        }
     }
 
     /**
@@ -290,49 +328,6 @@ public class PiperJNI implements AutoCloseable {
     public static class NotInitialized extends Exception {
         private NotInitialized() {
             super("Piper not initialized");
-        }
-    }
-
-    /**
-     * In order to avoid sharing pointers between the C++ and Java, we use this util base class
-     * which holds a random integer id generated in the whisper.cpp wrapper.
-     *
-     * @author Miguel Álvarez Díez - Initial contribution
-     */
-    public abstract static class JNIRef implements AutoCloseable {
-        /** Native pointer reference identifier. */
-        protected final int ref;
-
-        private boolean released;
-
-        /** Asserts the provided pointer is still available. */
-        protected void assertAvailable() {
-            if (this.isReleased()) {
-                throw new RuntimeException("Unavailable pointer, object is closed");
-            }
-        }
-
-        /**
-         * Creates a new object used to represent a struct pointer on the native library.
-         *
-         * @param ref a random integer id generated by the native wrapper
-         */
-        protected JNIRef(int ref) {
-            this.ref = ref;
-        }
-
-        /**
-         * Return true if native memory is free
-         *
-         * @return a boolean indicating if the native data was already released
-         */
-        protected boolean isReleased() {
-            return released;
-        }
-
-        /** Mark the point as released */
-        protected void release() {
-            released = true;
         }
     }
 }
