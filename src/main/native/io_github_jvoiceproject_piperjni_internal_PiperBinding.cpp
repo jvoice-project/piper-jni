@@ -226,10 +226,6 @@ JNIEXPORT jobject JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBi
             return nullptr;
         }
 
-        if (chunk.num_samples == 0 || chunk.samples == nullptr) {
-            return nullptr;
-        }
-
         jsize count = static_cast<jsize>(chunk.num_samples);
         jfloatArray samples = env->NewFloatArray(count);
         if (!samples) {
