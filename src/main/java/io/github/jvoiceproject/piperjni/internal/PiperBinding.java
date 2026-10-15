@@ -92,8 +92,9 @@ public final class PiperBinding {
      *
      * @param handle pointer to {@code piper_synthesizer*} instance
      * @return a new {@link PiperAudioChunk}, or {@code null} when synthesis is complete
+     * @throws IOException if audio synthesis fails
      */
-    public static native PiperAudioChunk piper_synthesize_next(long handle);
+    public static native PiperAudioChunk piper_synthesize_next(long handle) throws IOException;
 
     // Additional methods not mirrored from piper.h
 

@@ -178,6 +178,7 @@ public class PiperVoice implements AutoCloseable {
      * @param text text to speak
      * @param audioCallback Callback for each generated audio segment
      * @throws IllegalStateException if the voice is already closed
+     * @throws IllegalStateException if nested or re-entrant synthesis calls are attempted
      * @throws IOException if audio synthesis fails
      */
     public void textToAudio(String text, AudioCallback audioCallback)
