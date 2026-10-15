@@ -90,7 +90,7 @@ public class PiperJNI {
      * @throws IllegalStateException if the native library is not loaded
      * @throws FileNotFoundException if the model or the configuration file doesn't exist
      */
-    public static PiperVoice loadVoice(
+    public static synchronized PiperVoice loadVoice(
             Path modelPath, Path modelConfigPath, int speakerId, boolean useESpeakPhonemes)
             throws IllegalStateException, FileNotFoundException {
         assertRegistered();

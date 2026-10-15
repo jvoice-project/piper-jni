@@ -30,16 +30,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * The class {@link PiperVoice} represents a loaded voice model.
  *
  * <p>This class is fully thread-safe. All methods are safe to be called concurrently. Note that
- * only one text-to-speech synthesis can be performed at a time, so if you need to synthesize
- * multiple texts concurrently, you need multiple instances of {@link PiperVoice}.
+ * only one text-to-speech synthesis can be performed at a time.
  *
  * @author Miguel Álvarez Díez - Initial contribution
  * @author Florian Hotze - Refactored to use {@link PiperBinding} Made thread-safe
@@ -48,9 +45,12 @@ public class PiperVoice implements AutoCloseable {
 
     private final long nativeHandle;
     private final AtomicBoolean closed = new AtomicBoolean(false);
-    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
-    private final Lock synthesisLock = new ReentrantLock();
+    private final AtomicBoolean freed = new AtomicBoolean(false);
+    private final ReentrantLock synthesisLock = new ReentrantLock();
+
     private final PiperSynthesizeOptions options;
+    private final boolean usesESpeakPhonemes;
+    private final int sampleRate;
 
     /**
      * Creates a new voice instance.
@@ -84,6 +84,7 @@ public class PiperVoice implements AutoCloseable {
         if (this.nativeHandle == 0) {
             throw new FileNotFoundException("Failed to load voice model from " + modelPath);
         }
+
         PiperSynthesizeOptions initialOptions =
                 PiperBinding.piper_default_synthesize_options(this.nativeHandle);
         if (speakerId > -1 && initialOptions != null) {
@@ -91,6 +92,9 @@ public class PiperVoice implements AutoCloseable {
         } else {
             this.options = initialOptions;
         }
+
+        usesESpeakPhonemes = PiperBinding.piper_uses_espeak_phonemes(nativeHandle);
+        sampleRate = PiperBinding.piper_get_sample_rate(nativeHandle);
     }
 
     /**
@@ -100,13 +104,8 @@ public class PiperVoice implements AutoCloseable {
      * @throws IllegalStateException if the voice is already closed
      */
     public PiperSynthesizeOptions getOptions() throws IllegalStateException {
-        rwLock.readLock().lock();
-        try {
-            assertOpen();
-            return options;
-        } finally {
-            rwLock.readLock().unlock();
-        }
+        assertOpen();
+        return options;
     }
 
     /**
@@ -116,13 +115,8 @@ public class PiperVoice implements AutoCloseable {
      * @throws IllegalStateException if the voice is already closed
      */
     public boolean getUsesESpeakPhonemes() throws IllegalStateException {
-        rwLock.readLock().lock();
-        try {
-            assertOpen();
-            return PiperBinding.piper_uses_espeak_phonemes(nativeHandle);
-        } finally {
-            rwLock.readLock().unlock();
-        }
+        assertOpen();
+        return usesESpeakPhonemes;
     }
 
     /**
@@ -132,13 +126,8 @@ public class PiperVoice implements AutoCloseable {
      * @throws IllegalStateException if the voice is already closed
      */
     public int getSampleRate() throws IllegalStateException {
-        rwLock.readLock().lock();
-        try {
-            assertOpen();
-            return PiperBinding.piper_get_sample_rate(nativeHandle);
-        } finally {
-            rwLock.readLock().unlock();
-        }
+        assertOpen();
+        return sampleRate;
     }
 
     /**
@@ -151,6 +140,7 @@ public class PiperVoice implements AutoCloseable {
      * @param text text to speak
      * @return an array of 16-bit signed PCM mono audio samples ({@code short[]})
      * @throws IllegalStateException if the voice is already closed
+     * @throws IllegalStateException if nested or re-entrant synthesis calls are attempted
      * @throws IOException if audio synthesis fails
      */
     public short[] textToAudio(String text) throws IllegalStateException, IOException {
@@ -168,6 +158,7 @@ public class PiperVoice implements AutoCloseable {
      * @param options custom synthesis options or null for defaults
      * @return an array of 16-bit signed PCM mono audio samples ({@code short[]})
      * @throws IllegalStateException if the voice is already closed
+     * @throws IllegalStateException if nested or re-entrant synthesis calls are attempted
      * @throws IOException if audio synthesis fails
      */
     public short[] textToAudio(String text, PiperSynthesizeOptions options)
@@ -185,6 +176,7 @@ public class PiperVoice implements AutoCloseable {
      * @param text text to speak
      * @param audioCallback Callback for each generated audio segment
      * @throws IllegalStateException if the voice is already closed
+     * @throws IllegalStateException if nested or re-entrant synthesis calls are attempted
      * @throws IOException if audio synthesis fails
      */
     public void textToAudio(String text, AudioCallback audioCallback)
@@ -203,6 +195,7 @@ public class PiperVoice implements AutoCloseable {
      * @param audioCallback Callback for each generated audio segment
      * @param options custom synthesis options or null for defaults
      * @throws IllegalStateException if the voice is already closed
+     * @throws IllegalStateException if nested or re-entrant synthesis calls are attempted
      * @throws IOException if audio synthesis fails
      */
     public void textToAudio(
@@ -225,6 +218,7 @@ public class PiperVoice implements AutoCloseable {
      * @return an array of 16-bit signed PCM mono audio samples ({@code short[]}) in synchronous
      *     mode, or null in asynchronous mode
      * @throws IllegalStateException if the voice is already closed
+     * @throws IllegalStateException if nested or re-entrant synthesis calls are attempted
      * @throws IOException if audio synthesis fails
      */
     private short[] textToAudioImpl(
@@ -237,7 +231,11 @@ public class PiperVoice implements AutoCloseable {
 
         PiperSynthesizeOptions effectiveOptions = options != null ? options : this.options;
 
-        rwLock.readLock().lock();
+        if (synthesisLock.isHeldByCurrentThread()) {
+            throw new IllegalStateException(
+                    "Nested or re-entrant synthesis calls are not supported.");
+        }
+
         synthesisLock.lock();
         try {
             assertOpen();
@@ -251,7 +249,8 @@ public class PiperVoice implements AutoCloseable {
             PiperAudioChunk chunk;
 
             if (audioCallback != null) {
-                while ((chunk = PiperBinding.piper_synthesize_next(nativeHandle)) != null) {
+                while (!closed.get()
+                        && (chunk = PiperBinding.piper_synthesize_next(nativeHandle)) != null) {
                     if (chunk.numSamples() > 0 && chunk.samples() != null) {
                         if (chunk.numSamples() != chunk.samples().length) {
                             throw new IOException(
@@ -266,7 +265,8 @@ public class PiperVoice implements AutoCloseable {
             } else {
                 List<short[]> chunks = new ArrayList<>();
                 int totalSamples = 0;
-                while ((chunk = PiperBinding.piper_synthesize_next(nativeHandle)) != null) {
+                while (!closed.get()
+                        && (chunk = PiperBinding.piper_synthesize_next(nativeHandle)) != null) {
                     if (chunk.numSamples() > 0 && chunk.samples() != null) {
                         if (chunk.numSamples() != chunk.samples().length) {
                             throw new IOException(
@@ -288,21 +288,40 @@ public class PiperVoice implements AutoCloseable {
                 return fullAudio;
             }
         } finally {
-            synthesisLock.unlock();
-            rwLock.readLock().unlock();
+            try {
+                // close() was called from within AudioCallback while synthesis was running, perform
+                // the deferred free
+                if (closed.get()) {
+                    freeNativeHandle();
+                }
+            } finally {
+                synthesisLock.unlock();
+            }
         }
     }
 
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
-            rwLock.writeLock().lock();
+            if (synthesisLock.isHeldByCurrentThread()) {
+                // close() was called from within AudioCallback on the synthesis loop, let
+                // textToAudioImpl finally free it
+                return;
+            }
+
+            synthesisLock.lock();
             try {
-                if (nativeHandle != 0) {
-                    PiperBinding.piper_free(nativeHandle);
-                }
+                freeNativeHandle();
             } finally {
-                rwLock.writeLock().unlock();
+                synthesisLock.unlock();
+            }
+        }
+    }
+
+    private void freeNativeHandle() {
+        if (freed.compareAndSet(false, true)) {
+            if (nativeHandle != 0) {
+                PiperBinding.piper_free(nativeHandle);
             }
         }
     }
