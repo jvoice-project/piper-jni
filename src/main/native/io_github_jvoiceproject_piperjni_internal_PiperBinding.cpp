@@ -234,7 +234,9 @@ JNIEXPORT jobject JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBi
         }
 
         // Copy native float data into JVM array
-        env->SetFloatArrayRegion(samples, 0, count, chunk.samples);
+        if (count > 0 && chunk.samples != nullptr) {
+            env->SetFloatArrayRegion(samples, 0, count, chunk.samples);
+        }
 
         jobject chunk_obj = env->NewObject(cls_chunk, mid_chunk_ctor, samples,
                                     static_cast<jint>(chunk.num_samples),
