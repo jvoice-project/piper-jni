@@ -227,9 +227,6 @@ public class PiperVoice implements AutoCloseable {
             String text, AudioCallback audioCallback, PiperSynthesizeOptions options)
             throws IllegalStateException, IOException {
         Objects.requireNonNull(text, "Text can not be null");
-        if (text.isBlank()) {
-            return new short[] {};
-        }
 
         PiperSynthesizeOptions effectiveOptions = options != null ? options : this.options;
 
@@ -241,6 +238,9 @@ public class PiperVoice implements AutoCloseable {
         synthesisLock.lock();
         try {
             assertOpen();
+            if (text.isBlank()) {
+                return new short[] {};
+            }
 
             int startRes =
                     PiperBinding.piper_synthesize_start(nativeHandle, text, effectiveOptions);
