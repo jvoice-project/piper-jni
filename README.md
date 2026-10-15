@@ -57,21 +57,19 @@ You can also find the package's jar attached to each [release](https://github.co
 ```java
 String textToSpeak = "Hello, world!";
 
-PiperJNI piper = new PiperJNI();
-// Initialize Piper before using it.
-piper.initialize();
-try (var voice = piper.loadVoice(Paths.get("/path/to/en_US-lessac-medium.onnx"), Path.of("/path/to/en_US-lessac-medium.onnx.json"))) {
+// Load the native library before using PiperJNI
+PiperJNI.loadLibrary();
+
+try (var voice = PiperJNI.loadVoice(Paths.get("/path/to/en_US-lessac-medium.onnx"), Path.of("/path/to/en_US-lessac-medium.onnx.json"))) {
     int sampleRate = voice.getSampleRate();
-    short[] samples = piper.textToAudio(voice, textToSpeak);
+    short[] samples = voice.textToAudio(textToSpeak);
     // Do something with the samples...
-} finally {
-    piper.close();
 }
 ```
 
 ### Audio Output Specification
 
-When synthesizing text via `piper.textToAudio()`, the Java API layer produces audio with the following specification:
+When synthesizing text, the Java API layer produces audio with the following specification:
 
 | Attribute              | Value / Format                                                                             |
 |:-----------------------|:-------------------------------------------------------------------------------------------|

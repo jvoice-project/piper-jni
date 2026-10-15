@@ -20,6 +20,7 @@
 package io.github.jvoiceproject.piperjni;
 
 import io.github.jvoiceproject.piperjni.internal.NativeUtils;
+import io.github.jvoiceproject.piperjni.internal.PiperBinding;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -29,89 +30,26 @@ import java.nio.file.Path;
 /**
  * Piper JNI
  *
+ * <p>This class is thread-safe.
+ *
  * @author Miguel Álvarez Díez - Initial contribution
+ * @author Florian Hotze - Refactored to use {@link PiperBinding} Made thread-safe
  */
-public class PiperJNI implements AutoCloseable {
+public final class PiperJNI {
 
-    private static boolean libraryLoaded;
-    private String currentESpeakDataPath;
-    private boolean initialized;
+    private static volatile boolean libraryLoaded;
+    private static volatile Path eSpeakDataPath;
 
-    // region native api
-
-    protected native int loadVoice(
-            String espeakDataPath, String model, String modelConfig, long speakerId);
-
-    protected native void freeVoice(int voiceRef);
-
-    protected native boolean voiceUsesESpeakPhonemes(int voiceRef);
-
-    protected native int voiceSampleRate(int voiceRef);
-
-    private native short[] textToAudio(int voiceRef, String text, AudioCallback audioCallback)
-            throws IOException;
-
-    private native String getVersion();
-
-    // endregion
+    private PiperJNI() {}
 
     /**
-     * Creates a new Piper instance.
+     * Get the Piper version.
      *
-     * @throws IOException if library registration fails
+     * @return Piper library version.
      */
-    public PiperJNI() throws IOException {
-        loadLibrary();
-    }
-
-    /**
-     * Get Piper version.
-     *
-     * @return piper library version.
-     */
-    public String getPiperVersion() {
+    public static String getPiperVersion() {
         assertRegistered();
-        return getVersion();
-    }
-
-    /**
-     * Initializes the Piper instance configuration.
-     *
-     * <p>Must be called before using the instance.
-     *
-     * @throws IOException if initialization fails.
-     */
-    public void initialize() throws IOException {
-        initialize(true);
-    }
-
-    /**
-     * Initializes the Piper instance configuration.
-     *
-     * <p>Must be called before using the instance.
-     *
-     * @param useESpeakPhonemes Support voices with ESpeak phonemes.
-     * @throws IOException if initialization fails.
-     */
-    public void initialize(boolean useESpeakPhonemes) throws IOException {
-        assertRegistered();
-        if (useESpeakPhonemes) {
-            Path path = NativeUtils.getESpeakNGData();
-            if (path == null) {
-                this.currentESpeakDataPath = null;
-            } else {
-                this.currentESpeakDataPath = path.toAbsolutePath().toString();
-            }
-        } else {
-            this.currentESpeakDataPath = null;
-        }
-        this.initialized = true;
-    }
-
-    /** Unload current configuration (if any). */
-    public void terminate() {
-        this.currentESpeakDataPath = null;
-        this.initialized = false;
+        return PiperBinding.piper_get_version();
     }
 
     /**
@@ -120,11 +58,11 @@ public class PiperJNI implements AutoCloseable {
      * @param modelPath model file path (<code>.onnx</code>)
      * @param modelConfigPath model configuration file path (<code>.onnx.json</code>)
      * @return a {@link PiperVoice} instance
-     * @throws FileNotFoundException if models or config doesn't exist
-     * @throws NotInitialized if piper was not initialized
+     * @throws IllegalStateException if the native library is not loaded
+     * @throws FileNotFoundException if the model or the configuration file doesn't exist
      */
-    public PiperVoice loadVoice(Path modelPath, Path modelConfigPath)
-            throws FileNotFoundException, NotInitialized {
+    public static PiperVoice loadVoice(Path modelPath, Path modelConfigPath)
+            throws IllegalStateException, FileNotFoundException {
         return loadVoice(modelPath, modelConfigPath, -1);
     }
 
@@ -135,13 +73,29 @@ public class PiperJNI implements AutoCloseable {
      * @param modelConfigPath model configuration file path (<code>.onnx.json</code>)
      * @param speakerId speaker id for multi-speaker voices or <code>-1</code>
      * @return a {@link PiperVoice} instance
-     * @throws FileNotFoundException if model or configuration doesn't exist
-     * @throws NotInitialized if Piper was not initialized
+     * @throws IllegalStateException if the native library is not loaded
+     * @throws FileNotFoundException if the model or the configuration file doesn't exist
      */
-    public PiperVoice loadVoice(Path modelPath, Path modelConfigPath, long speakerId)
-            throws FileNotFoundException, NotInitialized {
+    public static PiperVoice loadVoice(Path modelPath, Path modelConfigPath, int speakerId)
+            throws IllegalStateException, FileNotFoundException {
+        return loadVoice(modelPath, modelConfigPath, speakerId, true);
+    }
+
+    /**
+     * Loads Piper voice model and configuration.
+     *
+     * @param modelPath model file path (<code>.onnx</code>)
+     * @param modelConfigPath model configuration file path (<code>.onnx.json</code>)
+     * @param speakerId speaker id for multi-speaker voices or <code>-1</code>
+     * @param useESpeakPhonemes whether to use eSpeak phonemes or not
+     * @return a {@link PiperVoice} instance
+     * @throws IllegalStateException if the native library is not loaded
+     * @throws FileNotFoundException if the model or the configuration file doesn't exist
+     */
+    public static synchronized PiperVoice loadVoice(
+            Path modelPath, Path modelConfigPath, int speakerId, boolean useESpeakPhonemes)
+            throws IllegalStateException, FileNotFoundException {
         assertRegistered();
-        assertInitialized();
         if (modelPath == null || !Files.exists(modelPath) || Files.isDirectory(modelPath)) {
             throw new FileNotFoundException("Model file is required");
         }
@@ -150,79 +104,20 @@ public class PiperJNI implements AutoCloseable {
                 || Files.isDirectory(modelConfigPath)) {
             throw new FileNotFoundException("Model config file is required");
         }
-        return new PiperVoice(this, currentESpeakDataPath, modelPath, modelConfigPath, speakerId);
+        return new PiperVoice(
+                modelPath, modelConfigPath, useESpeakPhonemes ? eSpeakDataPath : null, speakerId);
     }
 
     /**
-     * Convert text to audio using the provided voice synchronously.
-     *
-     * <p>The returned audio data is formatted as raw 16-bit signed PCM mono audio samples. The
-     * sample rate depends on the voice model configuration and can be retrieved via {@link
-     * PiperVoice#getSampleRate()}.
-     *
-     * @param voice {@link PiperVoice} instance to use
-     * @param text text to speak
-     * @return an array of 16-bit signed PCM mono audio samples ({@code short[]})
-     * @throws IOException if generation fails
-     * @throws NotInitialized if Piper is not initialized
-     */
-    public short[] textToAudio(PiperVoice voice, String text) throws IOException, NotInitialized {
-        return textToAudioImpl(voice, text, null);
-    }
-
-    /**
-     * Convert text to audio using the provided voice and emit audio segments asynchronously.
-     *
-     * <p>Audio segments are delivered to the {@link AudioCallback} as raw 16-bit signed PCM mono
-     * audio samples. The sample rate depends on the voice model configuration and can be retrieved
-     * via {@link PiperVoice#getSampleRate()}.
-     *
-     * @param voice {@link PiperVoice} instance to use
-     * @param text text to speak
-     * @param audioCallback Callback for each generated audio segment
-     * @throws IOException if generation fails
-     * @throws NotInitialized if Piper is not initialized
-     */
-    public void textToAudio(PiperVoice voice, String text, AudioCallback audioCallback)
-            throws IOException, NotInitialized {
-        textToAudioImpl(voice, text, audioCallback);
-    }
-
-    private short[] textToAudioImpl(PiperVoice voice, String text, AudioCallback audioCallback)
-            throws IOException, NotInitialized {
-        assertRegistered();
-        assertInitialized();
-        if (voice == null) {
-            throw new NullPointerException("Voice can not be null");
-        }
-        if (text == null) {
-            throw new NullPointerException("Text can not be null");
-        }
-        if (text.isBlank()) {
-            // return empty.
-            return new short[] {};
-        }
-        return textToAudio(voice.ref, text, audioCallback);
-    }
-
-    /**
-     * Checks if Piper is initialized.
-     *
-     * @return <code>true</code> if Piper was initialized
-     */
-    public boolean isInitialized() {
-        return initialized;
-    }
-
-    /**
-     * Loads the native library, should be called at first.
+     * Loads the native library. Must be called before any other method.
      *
      * @throws IOException when unable to load the native library
      */
-    private void loadLibrary() throws IOException {
+    public static synchronized void loadLibrary() throws IOException {
         if (libraryLoaded) {
             return;
         }
+
         String bundleLibraryPath = null;
         String osName = System.getProperty("os.name").toLowerCase();
         String osArch = System.getProperty("os.arch").toLowerCase();
@@ -256,83 +151,25 @@ public class PiperJNI implements AutoCloseable {
                     "piper-jni: Unsupported platform " + osName + " - " + osArch + ".");
         }
         NativeUtils.loadLibraryResource(bundleLibraryPath);
+
+        Path path = NativeUtils.getESpeakNGData();
+        if (path == null) {
+            eSpeakDataPath = null;
+        } else {
+            eSpeakDataPath = path.toAbsolutePath();
+        }
+
         libraryLoaded = true;
     }
 
-    private static void assertRegistered() {
-        if (!libraryLoaded) {
-            throw new RuntimeException("Native library is unavailable.");
-        }
-    }
-
-    private void assertInitialized() throws NotInitialized {
-        if (!isInitialized()) {
-            throw new NotInitialized();
-        }
-    }
-
-    @Override
-    public void close() {
-        terminate();
-    }
-
-    /** Callback for streamed audio segments. */
-    public interface AudioCallback {
-        /**
-         * Called once on each generated voice segment.
-         *
-         * @param audioSamples an array of raw 16-bit signed PCM mono audio samples
-         */
-        void onAudio(short[] audioSamples);
-    }
-
-    /** Emitted if Piper instance was not initialized by calling the {@link #initialize} method. */
-    public static class NotInitialized extends Exception {
-        private NotInitialized() {
-            super("Piper not initialized");
-        }
-    }
-
     /**
-     * In order to avoid sharing pointers between the C++ and Java, we use this util base class
-     * which holds a random integer id generated in the whisper.cpp wrapper.
+     * Ensures the native library is loaded.
      *
-     * @author Miguel Álvarez Díez - Initial contribution
+     * @throws IllegalStateException if the native library is not loaded
      */
-    public abstract static class JNIRef implements AutoCloseable {
-        /** Native pointer reference identifier. */
-        protected final int ref;
-
-        private boolean released;
-
-        /** Asserts the provided pointer is still available. */
-        protected void assertAvailable() {
-            if (this.isReleased()) {
-                throw new RuntimeException("Unavailable pointer, object is closed");
-            }
-        }
-
-        /**
-         * Creates a new object used to represent a struct pointer on the native library.
-         *
-         * @param ref a random integer id generated by the native wrapper
-         */
-        protected JNIRef(int ref) {
-            this.ref = ref;
-        }
-
-        /**
-         * Return true if native memory is free
-         *
-         * @return a boolean indicating if the native data was already released
-         */
-        protected boolean isReleased() {
-            return released;
-        }
-
-        /** Mark the point as released */
-        protected void release() {
-            released = true;
+    private static void assertRegistered() throws IllegalStateException {
+        if (!libraryLoaded) {
+            throw new IllegalStateException("Piper library not loaded");
         }
     }
 }
