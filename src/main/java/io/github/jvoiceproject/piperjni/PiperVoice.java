@@ -43,10 +43,21 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class PiperVoice implements AutoCloseable {
 
+    /**
+     * eSpeak NG, which is used internally by Piper, depends heavily on mutable process-wide global
+     * variables, lookup tables, and internal buffers.
+     */
+    private static final ReentrantLock globalSynthesisLock = new ReentrantLock();
+
     private final long nativeHandle;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final AtomicBoolean freed = new AtomicBoolean(false);
-    private final ReentrantLock synthesisLock = new ReentrantLock();
+
+    /**
+     * If eSpeak NG phonemes aren't used, it is sufficient to synchronize synthesis on the instance
+     * level.
+     */
+    private final ReentrantLock instanceSynthesisLock = new ReentrantLock();
 
     private final PiperSynthesizeOptions options;
     private final boolean usesESpeakPhonemes;
@@ -238,12 +249,14 @@ public class PiperVoice implements AutoCloseable {
 
         PiperSynthesizeOptions effectiveOptions = options != null ? options : this.options;
 
-        if (synthesisLock.isHeldByCurrentThread()) {
+        ReentrantLock lock = usesESpeakPhonemes ? globalSynthesisLock : instanceSynthesisLock;
+
+        if (lock.isHeldByCurrentThread()) {
             throw new IllegalStateException(
                     "Nested or re-entrant synthesis calls are not supported.");
         }
 
-        synthesisLock.lock();
+        lock.lock();
         try {
             assertOpen();
             if (text.isBlank()) {
@@ -305,7 +318,7 @@ public class PiperVoice implements AutoCloseable {
                     freeNativeHandle();
                 }
             } finally {
-                synthesisLock.unlock();
+                lock.unlock();
             }
         }
     }
@@ -313,17 +326,19 @@ public class PiperVoice implements AutoCloseable {
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
-            if (synthesisLock.isHeldByCurrentThread()) {
+            ReentrantLock lock = usesESpeakPhonemes ? globalSynthesisLock : instanceSynthesisLock;
+
+            if (lock.isHeldByCurrentThread()) {
                 // close() was called from within AudioCallback on the synthesis loop, let
                 // textToAudioImpl finally free it
                 return;
             }
 
-            synthesisLock.lock();
+            lock.lock();
             try {
                 freeNativeHandle();
             } finally {
-                synthesisLock.unlock();
+                lock.unlock();
             }
         }
     }
