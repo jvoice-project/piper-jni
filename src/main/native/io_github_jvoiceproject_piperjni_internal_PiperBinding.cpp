@@ -269,7 +269,7 @@ JNIEXPORT jboolean JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperB
     if (synth == 0) return JNI_FALSE;
     try {
         piper_synthesizer *s = reinterpret_cast<piper_synthesizer *>(synth);
-        return (jboolean) (s->espeak_voice.empty() && !s->phoneme_id_map.empty());
+        return (jboolean) !s->espeak_voice.empty();
     } catch (...) {
         swallow_cpp_exception_and_throw_java(env);
         return JNI_FALSE;
