@@ -30,6 +30,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import javax.naming.ConfigurationException;
 import javax.sound.sampled.AudioFileFormat;
 import javax.sound.sampled.AudioInputStream;
@@ -43,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -189,6 +195,253 @@ public class PiperJNITest {
         assertThrows(IllegalStateException.class, voice::getUsesESpeakPhonemes);
         assertThrows(IllegalStateException.class, voice::getOptions);
         assertThrows(IllegalStateException.class, () -> voice.textToAudio("Hello"));
+    }
+
+    @Test
+    @Tag("concurrency")
+    public void testConcurrentVoicesAndSynthesis() throws Exception {
+        String voiceModel = System.getenv("VOICE_MODEL");
+        String voiceModelConfig = System.getenv("VOICE_MODEL_CONFIG");
+        String textToSpeak = System.getenv("TEXT_TO_SPEAK");
+        if (voiceModel == null || voiceModel.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL is required");
+        }
+        if (voiceModelConfig == null || voiceModelConfig.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL_CONFIG is required");
+        }
+        if (textToSpeak == null || textToSpeak.isBlank()) {
+            throw new ConfigurationException("env var TEXT_TO_SPEAK is required");
+        }
+
+        int threads = 4;
+        int iterations = 10;
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        List<Future<?>> futures = new ArrayList<>();
+
+        try {
+            for (int t = 0; t < threads; t++) {
+                futures.add(
+                        executor.submit(
+                                () -> {
+                                    startLatch.await();
+                                    for (int i = 0; i < iterations; i++) {
+                                        PiperVoice voice =
+                                                PiperJNI.loadVoice(
+                                                        Paths.get(voiceModel),
+                                                        Path.of(voiceModelConfig));
+                                        try {
+                                            assertNotNull(voice.getOptions());
+                                            assertNotEquals(0, voice.getSampleRate());
+                                            short[] audio = voice.textToAudio(textToSpeak);
+                                            assertNotNull(audio);
+                                            assertNotEquals(0, audio.length);
+                                        } finally {
+                                            voice.close();
+                                        }
+                                    }
+                                    return null;
+                                }));
+            }
+            startLatch.countDown();
+            for (Future<?> future : futures) {
+                future.get(120, TimeUnit.SECONDS);
+            }
+        } finally {
+            executor.shutdown();
+            assertTrue(
+                    executor.awaitTermination(5, TimeUnit.SECONDS),
+                    "Executor should terminate cleanly");
+        }
+    }
+
+    @Test
+    @Tag("concurrency")
+    public void testConcurrentLoadLibrary() throws Exception {
+        int threads = 4;
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        List<Future<?>> futures = new ArrayList<>();
+
+        try {
+            for (int t = 0; t < threads; t++) {
+                futures.add(
+                        executor.submit(
+                                () -> {
+                                    startLatch.await();
+                                    PiperJNI.loadLibrary();
+                                    return null;
+                                }));
+            }
+            startLatch.countDown();
+            for (Future<?> future : futures) {
+                future.get(10, TimeUnit.SECONDS);
+            }
+        } finally {
+            executor.shutdown();
+            assertTrue(
+                    executor.awaitTermination(5, TimeUnit.SECONDS),
+                    "Executor should terminate cleanly");
+        }
+    }
+
+    @Test
+    @Tag("concurrency")
+    public void testConcurrentClose() throws Exception {
+        String voiceModel = System.getenv("VOICE_MODEL");
+        String voiceModelConfig = System.getenv("VOICE_MODEL_CONFIG");
+        if (voiceModel == null || voiceModel.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL is required");
+        }
+        if (voiceModelConfig == null || voiceModelConfig.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL_CONFIG is required");
+        }
+
+        PiperVoice voice = PiperJNI.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig));
+        int threads = 4;
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        List<Future<?>> futures = new ArrayList<>();
+
+        try {
+            for (int t = 0; t < threads; t++) {
+                futures.add(
+                        executor.submit(
+                                () -> {
+                                    startLatch.await();
+                                    voice.close();
+                                    return null;
+                                }));
+            }
+            startLatch.countDown();
+            for (Future<?> future : futures) {
+                future.get(10, TimeUnit.SECONDS);
+            }
+            assertThrows(IllegalStateException.class, voice::getSampleRate);
+            assertThrows(IllegalStateException.class, () -> voice.textToAudio("Hello"));
+        } finally {
+            executor.shutdown();
+            assertTrue(
+                    executor.awaitTermination(5, TimeUnit.SECONDS),
+                    "Executor should terminate cleanly");
+        }
+    }
+
+    @Test
+    @Tag("concurrency")
+    public void testConcurrentSynthesisOnSameInstance() throws Exception {
+        String voiceModel = System.getenv("VOICE_MODEL");
+        String voiceModelConfig = System.getenv("VOICE_MODEL_CONFIG");
+        String textToSpeak = System.getenv("TEXT_TO_SPEAK");
+        if (voiceModel == null || voiceModel.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL is required");
+        }
+        if (voiceModelConfig == null || voiceModelConfig.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL_CONFIG is required");
+        }
+        if (textToSpeak == null || textToSpeak.isBlank()) {
+            throw new ConfigurationException("env var TEXT_TO_SPEAK is required");
+        }
+
+        try (PiperVoice voice =
+                PiperJNI.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig))) {
+            assertNotNull(voice.getOptions());
+            assertNotEquals(0, voice.getSampleRate());
+
+            int threads = 4;
+            int iterations = 10;
+            ExecutorService executor = Executors.newFixedThreadPool(threads);
+            CountDownLatch startLatch = new CountDownLatch(1);
+            List<Future<?>> futures = new ArrayList<>();
+
+            try {
+                for (int t = 0; t < threads; t++) {
+                    futures.add(
+                            executor.submit(
+                                    () -> {
+                                        startLatch.await();
+                                        for (int i = 0; i < iterations; i++) {
+                                            short[] audio = voice.textToAudio(textToSpeak);
+                                            assertNotNull(audio);
+                                            assertNotEquals(0, audio.length);
+                                        }
+                                        return null;
+                                    }));
+                }
+                startLatch.countDown();
+                for (Future<?> future : futures) {
+                    future.get(10, TimeUnit.SECONDS);
+                }
+            } finally {
+                executor.shutdown();
+                assertTrue(
+                        executor.awaitTermination(5, TimeUnit.SECONDS),
+                        "Executor should terminate cleanly");
+            }
+        }
+    }
+
+    @Test
+    @Tag("concurrency")
+    public void testConcurrentSynthesisAndClose() throws Exception {
+        String voiceModel = System.getenv("VOICE_MODEL");
+        String voiceModelConfig = System.getenv("VOICE_MODEL_CONFIG");
+        String textToSpeak = System.getenv("TEXT_TO_SPEAK");
+        if (voiceModel == null || voiceModel.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL is required");
+        }
+        if (voiceModelConfig == null || voiceModelConfig.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL_CONFIG is required");
+        }
+        if (textToSpeak == null || textToSpeak.isBlank()) {
+            throw new ConfigurationException("env var TEXT_TO_SPEAK is required");
+        }
+
+        PiperVoice voice = PiperJNI.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig));
+        assertNotNull(voice.getOptions());
+        assertNotEquals(0, voice.getSampleRate());
+
+        int threads = 4;
+        ExecutorService executor = Executors.newFixedThreadPool(threads + 1);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        List<Future<?>> futures = new ArrayList<>();
+
+        try {
+            for (int t = 0; t < threads; t++) {
+                futures.add(
+                        executor.submit(
+                                () -> {
+                                    startLatch.await();
+                                    try {
+                                        for (int i = 0; i < 100; i++) {
+                                            voice.textToAudio(textToSpeak);
+                                        }
+                                    } catch (IllegalStateException | IOException expected) {
+                                        // Expected once closed
+                                    }
+                                    return null;
+                                }));
+            }
+            futures.add(
+                    executor.submit(
+                            () -> {
+                                startLatch.await();
+                                Thread.sleep(20);
+                                voice.close();
+                                return null;
+                            }));
+
+            startLatch.countDown();
+            for (Future<?> future : futures) {
+                future.get(10, TimeUnit.SECONDS);
+            }
+            assertThrows(IllegalStateException.class, () -> voice.textToAudio(textToSpeak));
+        } finally {
+            executor.shutdown();
+            assertTrue(
+                    executor.awaitTermination(5, TimeUnit.SECONDS),
+                    "Executor should terminate cleanly");
+        }
     }
 
     private void createWAVFile(List<short[]> sampleChunks, long sampleRate, Path outFilePath) {
