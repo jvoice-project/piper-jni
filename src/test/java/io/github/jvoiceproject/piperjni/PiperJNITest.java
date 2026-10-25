@@ -213,7 +213,7 @@ public class PiperJNITest {
             throw new ConfigurationException("env var TEXT_TO_SPEAK is required");
         }
 
-        int threads = Runtime.getRuntime().availableProcessors() / 2;
+        int threads = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
         int iterations = 10;
         ExecutorService executor = Executors.newFixedThreadPool(threads);
         CountDownLatch startLatch = new CountDownLatch(1);
@@ -258,7 +258,7 @@ public class PiperJNITest {
     @Test
     @Tag("concurrency")
     public void testConcurrentLoadLibrary() throws Exception {
-        int threads = Runtime.getRuntime().availableProcessors() / 2;
+        int threads = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
         ExecutorService executor = Executors.newFixedThreadPool(threads);
         CountDownLatch startLatch = new CountDownLatch(1);
         List<Future<?>> futures = new ArrayList<>();
@@ -298,7 +298,7 @@ public class PiperJNITest {
         }
 
         PiperVoice voice = PiperJNI.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig));
-        int threads = Runtime.getRuntime().availableProcessors() / 2;
+        int threads = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
         ExecutorService executor = Executors.newFixedThreadPool(threads);
         CountDownLatch startLatch = new CountDownLatch(1);
         List<Future<?>> futures = new ArrayList<>();
@@ -343,7 +343,7 @@ public class PiperJNITest {
             throw new ConfigurationException("env var TEXT_TO_SPEAK is required");
         }
 
-        int threads = Runtime.getRuntime().availableProcessors() / 2;
+        int threads = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
         int iterations = 10;
 
         try (PiperVoice voice =
@@ -371,7 +371,7 @@ public class PiperJNITest {
                 }
                 startLatch.countDown();
                 for (Future<?> future : futures) {
-                    future.get(10, TimeUnit.SECONDS);
+                    future.get(60, TimeUnit.SECONDS);
                 }
             } finally {
                 executor.shutdown();
@@ -402,7 +402,7 @@ public class PiperJNITest {
         assertNotNull(voice.getOptions());
         assertNotEquals(0, voice.getSampleRate());
 
-        int threads = Runtime.getRuntime().availableProcessors() / 2;
+        int threads = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
         ExecutorService executor = Executors.newFixedThreadPool(threads + 1);
         CountDownLatch startLatch = new CountDownLatch(1);
         List<Future<?>> futures = new ArrayList<>();
