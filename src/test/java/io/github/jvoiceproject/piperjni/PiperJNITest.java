@@ -73,6 +73,7 @@ public class PiperJNITest {
         }
         try (var voice = PiperJNI.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig))) {
             assertNotNull(voice);
+            assertTrue(voice.getUsesESpeakPhonemes());
         }
     }
 

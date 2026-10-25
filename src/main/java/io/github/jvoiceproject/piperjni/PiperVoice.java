@@ -96,6 +96,14 @@ public class PiperVoice implements AutoCloseable {
         }
 
         usesESpeakPhonemes = PiperBinding.piper_uses_espeak_phonemes(nativeHandle);
+
+        if (usesESpeakPhonemes && effectiveESpeakDataPath == null) {
+            close();
+            throw new IllegalArgumentException(
+                    "eSpeak phonemes are required by the model, but eSpeak data directory is not"
+                            + " set");
+        }
+
         sampleRate = PiperBinding.piper_get_sample_rate(nativeHandle);
     }
 
