@@ -36,17 +36,29 @@ import java.util.concurrent.locks.ReentrantLock;
  * The class {@link PiperVoice} represents a loaded voice model.
  *
  * <p>This class is fully thread-safe. All methods are safe to be called concurrently. Note that
- * only one text-to-speech synthesis can be performed at a time.
+ * only one text-to-speech synthesis can be performed at a time per voice instance.
  *
  * @author Miguel Álvarez Díez - Initial contribution
- * @author Florian Hotze - Refactored to use {@link PiperBinding} Made thread-safe
+ * @author Florian Hotze - Refactored to use {@link PiperBinding}; Made thread-safe
  */
 public class PiperVoice implements AutoCloseable {
+
+    /**
+     * eSpeak NG, which is used internally by Piper, depends heavily on mutable process-wide global
+     * variables, lookup tables, and internal buffers. Phoneme synthesis needs to be synchronized
+     * globally across voices to protect these resources.
+     */
+    private static final ReentrantLock globalESpeakLock = new ReentrantLock();
 
     private final long nativeHandle;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final AtomicBoolean freed = new AtomicBoolean(false);
-    private final ReentrantLock synthesisLock = new ReentrantLock();
+
+    /**
+     * Synthesis lock to ensure only one synthesis operation is performed at a time on this voice
+     * instance.
+     */
+    private final ReentrantLock instanceSynthesisLock = new ReentrantLock();
 
     private final PiperSynthesizeOptions options;
     private final boolean usesESpeakPhonemes;
@@ -238,20 +250,30 @@ public class PiperVoice implements AutoCloseable {
 
         PiperSynthesizeOptions effectiveOptions = options != null ? options : this.options;
 
-        if (synthesisLock.isHeldByCurrentThread()) {
+        if (instanceSynthesisLock.isHeldByCurrentThread()) {
             throw new IllegalStateException(
                     "Nested or re-entrant synthesis calls are not supported.");
         }
 
-        synthesisLock.lock();
+        instanceSynthesisLock.lock();
         try {
             assertOpen();
             if (text.isBlank()) {
                 return new short[] {};
             }
 
-            int startRes =
-                    PiperBinding.piper_synthesize_start(nativeHandle, text, effectiveOptions);
+            int startRes;
+            // piper.cpp always calls eSpeak regardless of using eSpeak phonemes or not => always
+            // synchronize on global eSpeak lock
+            globalESpeakLock.lock();
+            try {
+                assertOpen();
+                startRes =
+                        PiperBinding.piper_synthesize_start(nativeHandle, text, effectiveOptions);
+            } finally {
+                globalESpeakLock.unlock();
+            }
+
             if (startRes != PiperBinding.PIPER_OK) {
                 throw new IOException("Failed to start synthesis (error " + startRes + ")");
             }
@@ -305,7 +327,7 @@ public class PiperVoice implements AutoCloseable {
                     freeNativeHandle();
                 }
             } finally {
-                synthesisLock.unlock();
+                instanceSynthesisLock.unlock();
             }
         }
     }
@@ -313,17 +335,17 @@ public class PiperVoice implements AutoCloseable {
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
-            if (synthesisLock.isHeldByCurrentThread()) {
+            if (instanceSynthesisLock.isHeldByCurrentThread()) {
                 // close() was called from within AudioCallback on the synthesis loop, let
                 // textToAudioImpl finally free it
                 return;
             }
 
-            synthesisLock.lock();
+            instanceSynthesisLock.lock();
             try {
                 freeNativeHandle();
             } finally {
-                synthesisLock.unlock();
+                instanceSynthesisLock.unlock();
             }
         }
     }
