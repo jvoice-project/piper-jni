@@ -358,6 +358,11 @@ public class PiperVoice implements AutoCloseable {
         }
     }
 
+    /**
+     * Returns whether this {@link PiperVoice} instance has been closed.
+     *
+     * @return true if the voice has been closed, false otherwise
+     */
     public boolean isClosed() {
         return closed.get();
     }
