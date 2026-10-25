@@ -5,7 +5,6 @@
 #include <onnxruntime_cxx_api.h>
 #include <new>
 #include <filesystem>
-#include <stdexcept>
 
 /// Java exception helper
 static void throwJava(JNIEnv *env, const char *className, const char *message) {
