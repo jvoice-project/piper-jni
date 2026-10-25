@@ -75,9 +75,9 @@ public final class PiperBinding {
     /**
      * Start text-to-speech synthesis.
      *
-     * <p>This clears state, phonemizes text, and maps phonemes to ids using eSpeak NG. As eSpeak NG
-     * depends heavily on mutable process-wide global variables, lookup tables, and internal
-     * buffers, invocations need to be synchronized globally.
+     * <p>This function clears state, phonemizes text, and maps phonemes to ids using eSpeak NG. As
+     * eSpeak NG depends heavily on mutable process-wide global variables, lookup tables, and
+     * internal buffers, invocations need to be synchronized globally.
      *
      * @param handle pointer to {@code piper_synthesizer*} instance
      * @param text text to synthesize into audio
@@ -88,7 +88,7 @@ public final class PiperBinding {
             long handle, String text, PiperSynthesizeOptions options);
 
     /**
-     * Synthesize next chunk of audio.
+     * Synthesize the next chunk of audio.
      *
      * <p>This function does not call eSpeak NG, so it is safe to synchronize on a
      * synthesizer-instance level.
