@@ -263,19 +263,15 @@ public class PiperVoice implements AutoCloseable {
             }
 
             int startRes;
-            if (usesESpeakPhonemes) {
-                globalESpeakLock.lock();
-                try {
-                    assertOpen();
-                    startRes =
-                            PiperBinding.piper_synthesize_start(
-                                    nativeHandle, text, effectiveOptions);
-                } finally {
-                    globalESpeakLock.unlock();
-                }
-            } else {
+            // piper.cpp always calls eSpeak regardless of using eSpeak phonemes or not => always
+            // synchronize on global eSpeak lock
+            globalESpeakLock.lock();
+            try {
+                assertOpen();
                 startRes =
                         PiperBinding.piper_synthesize_start(nativeHandle, text, effectiveOptions);
+            } finally {
+                globalESpeakLock.unlock();
             }
 
             if (startRes != PiperBinding.PIPER_OK) {
