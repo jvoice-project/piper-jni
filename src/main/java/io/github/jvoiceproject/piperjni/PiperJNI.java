@@ -76,24 +76,8 @@ public final class PiperJNI {
      * @throws IllegalStateException if the native library is not loaded
      * @throws FileNotFoundException if the model or the configuration file doesn't exist
      */
-    public static PiperVoice loadVoice(Path modelPath, Path modelConfigPath, int speakerId)
-            throws IllegalStateException, FileNotFoundException {
-        return loadVoice(modelPath, modelConfigPath, speakerId, true);
-    }
-
-    /**
-     * Loads Piper voice model and configuration.
-     *
-     * @param modelPath model file path (<code>.onnx</code>)
-     * @param modelConfigPath model configuration file path (<code>.onnx.json</code>)
-     * @param speakerId speaker id for multi-speaker voices or <code>-1</code>
-     * @param useESpeakPhonemes whether to use eSpeak phonemes or not
-     * @return a {@link PiperVoice} instance
-     * @throws IllegalStateException if the native library is not loaded
-     * @throws FileNotFoundException if the model or the configuration file doesn't exist
-     */
     public static synchronized PiperVoice loadVoice(
-            Path modelPath, Path modelConfigPath, int speakerId, boolean useESpeakPhonemes)
+            Path modelPath, Path modelConfigPath, int speakerId)
             throws IllegalStateException, FileNotFoundException {
         assertRegistered();
         if (modelPath == null || !Files.exists(modelPath) || Files.isDirectory(modelPath)) {
@@ -104,8 +88,7 @@ public final class PiperJNI {
                 || Files.isDirectory(modelConfigPath)) {
             throw new FileNotFoundException("Model config file is required");
         }
-        return new PiperVoice(
-                modelPath, modelConfigPath, useESpeakPhonemes ? eSpeakDataPath : null, speakerId);
+        return new PiperVoice(modelPath, modelConfigPath, eSpeakDataPath, speakerId);
     }
 
     /**

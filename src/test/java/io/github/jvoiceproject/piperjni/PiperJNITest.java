@@ -75,12 +75,6 @@ public class PiperJNITest {
             assertNotNull(voice);
             assertTrue(voice.getUsesESpeakPhonemes());
         }
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () ->
-                        PiperJNI.loadVoice(
-                                Paths.get(voiceModel), Path.of(voiceModelConfig), -1, false));
     }
 
     @Test
