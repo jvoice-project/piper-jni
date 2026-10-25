@@ -52,7 +52,7 @@
     <maven.compiler.target>${java.version}</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <!-- test configuration: -->
-    <test.resources.dir>${project.build.directory}/test-resources</test.resources.dir>
+    <test.resources.dir>${user.home}/.cache/piper-jni-test-resources</test.resources.dir>
     <test.output.dir>${project.build.directory}/test-output</test.output.dir>
     <test.model.name>es_ES-sharvard-medium.onnx</test.model.name>
     <test.model.url>https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/sharvard/medium</test.model.url>
@@ -91,6 +91,7 @@
             <configuration>
               <target>
                 <mkdir dir="${test.resources.dir}"/>
+                <echo message="Checking and downloading test models in ${test.resources.dir} (skipping if already present)..."/>
                 <get dest="${test.resources.dir}/${test.model.name}" skipexisting="true" src="${test.model.url}/${test.model.name}"/>
                 <get dest="${test.resources.dir}/${test.model.name}.json" skipexisting="true" src="${test.model.url}/${test.model.name}.json"/>
                 <delete dir="${test.output.dir}"/>
