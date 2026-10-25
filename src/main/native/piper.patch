@@ -21,10 +21,14 @@ index aa12a1d..186d297 100644
      auto it = view.begin();
  
 diff --git a/libpiper/src/piper.cpp b/libpiper/src/piper.cpp
-index 774e87d..9b7dde6 100644
+index 774e87d..ff7311a 100644
 --- a/libpiper/src/piper.cpp
 +++ b/libpiper/src/piper.cpp
-@@ -7,8 +7,15 @@
+@@ -4,11 +4,22 @@
+ #include <array>
+ #include <fstream>
+ #include <limits>
++#include <mutex>
  
  #include <espeak-ng/speak_lib.h>
  
@@ -37,10 +41,32 @@ index 774e87d..9b7dde6 100644
  
 +Ort::Env ort_env{ORT_LOGGING_LEVEL_WARNING, "piper"};
 +
++static std::mutex espeak_init_mutex;
++static bool espeak_initialized = false;
++
  struct piper_synthesizer *piper_create(const char *model_path,
                                         const char *config_path,
                                         const char *espeak_data_path) {
-@@ -96,8 +103,18 @@ struct piper_synthesizer *piper_create(const char *model_path,
+@@ -27,9 +38,15 @@ struct piper_synthesizer *piper_create(const char *model_path,
+     std::ifstream config_stream(config_path_str);
+     auto config = json::parse(config_stream);
+ 
+-    if (espeak_Initialize(AUDIO_OUTPUT_SYNCHRONOUS, 0, espeak_data_path, 0) <
+-        0) {
+-        return nullptr;
++    {
++        std::lock_guard<std::mutex> lock(espeak_init_mutex);
++        if (!espeak_initialized) {
++            if (espeak_Initialize(AUDIO_OUTPUT_SYNCHRONOUS, 0, espeak_data_path, 0) <
++                0) {
++                return nullptr;
++            }
++            espeak_initialized = true;
++        }
+     }
+ 
+     piper_synthesizer *synth = new piper_synthesizer();
+@@ -96,15 +113,23 @@ struct piper_synthesizer *piper_create(const char *model_path,
      synth->session_options.DisableMemPattern();
      synth->session_options.DisableProfiling();
  
@@ -61,3 +87,10 @@ index 774e87d..9b7dde6 100644
  
      return synth;
  }
+ 
+ void piper_free(struct piper_synthesizer *synth) {
+-    espeak_Terminate();
+-
+     if (!synth) {
+         return;
+     }
