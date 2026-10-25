@@ -367,7 +367,7 @@ public class PiperVoice implements AutoCloseable {
         return closed.get();
     }
 
-    void assertOpen() throws IllegalStateException {
+    private void assertOpen() throws IllegalStateException {
         if (closed.get()) {
             throw new IllegalStateException("PiperVoice has already been closed.");
         }
