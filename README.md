@@ -12,8 +12,7 @@ This library aims to support the following platforms:
 * macOS x86_64/arm64 (built for macOS 14 Sonoma and newer)
 
 The JAR includes the piper-jni native library, which contains the [Piper](https://github.com/OHF-Voice/piper1-gpl) source,
-and the shared libraries it depends on:
-[espeak](https://espeak.sourceforge.net) and [onxxruntime](https://onnxruntime.ai).
+and the shared libraries it depends on: [espeak-ng](https://github.com/espeak-ng/espeak-ng) and [onxxruntime](https://onnxruntime.ai).
 
 ## Usage
 
