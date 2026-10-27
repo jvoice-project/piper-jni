@@ -41,6 +41,7 @@ import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.UnsupportedAudioFileException;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -80,6 +81,50 @@ public class PiperJNITest {
         try (var voice = PiperJNI.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig))) {
             assertNotNull(voice);
             assertTrue(voice.getUsesESpeakPhonemes());
+            assertNotNull(voice.getOptions());
+        }
+    }
+
+    @Test
+    public void createPiperVoiceWithConfig() throws ConfigurationException, FileNotFoundException {
+        String voiceModel = System.getenv("VOICE_MODEL");
+        String voiceModelConfig = System.getenv("VOICE_MODEL_CONFIG");
+        if (voiceModel == null || voiceModel.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL is required");
+        }
+        if (voiceModelConfig == null || voiceModelConfig.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL_CONFIG is required");
+        }
+
+        PiperVoiceConfig config =
+                new PiperVoiceConfig(Paths.get(voiceModel))
+                        .withConfigPath(Path.of(voiceModelConfig));
+        try (var voice = PiperJNI.loadVoice(config)) {
+            assertNotNull(voice);
+            assertTrue(voice.getUsesESpeakPhonemes());
+            assertNotNull(voice.getOptions());
+        }
+    }
+
+    @Test
+    public void createPiperVoiceWithDefaultSpeaker()
+            throws ConfigurationException, FileNotFoundException {
+        String voiceModel = System.getenv("VOICE_MODEL");
+        String voiceModelConfig = System.getenv("VOICE_MODEL_CONFIG");
+        if (voiceModel == null || voiceModel.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL is required");
+        }
+        if (voiceModelConfig == null || voiceModelConfig.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL_CONFIG is required");
+        }
+
+        try (var voice =
+                PiperJNI.loadVoice(
+                        Paths.get(voiceModel), Path.of(voiceModelConfig), (Integer) null)) {
+            assertNotNull(voice);
+            assertNotNull(voice.getOptions());
+            // Model default speaker is resolved
+            assertEquals(0, voice.getOptions().speakerId());
         }
     }
 
@@ -176,6 +221,39 @@ public class PiperJNITest {
             assertTrue(
                     samplesSlow.length > samplesFast.length,
                     "Slower speech should generate more samples than faster speech");
+        }
+    }
+
+    @Test
+    public void createAudioDataWithSentenceSilence() throws ConfigurationException, IOException {
+        String voiceModel = System.getenv("VOICE_MODEL");
+        String voiceModelConfig = System.getenv("VOICE_MODEL_CONFIG");
+        String multiSentenceTextToSpeak = System.getenv("MULTI_SENTENCE_TEXT_TO_SPEAK");
+        if (voiceModel == null || voiceModel.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL is required");
+        }
+        if (voiceModelConfig == null || voiceModelConfig.isBlank()) {
+            throw new ConfigurationException("env var VOICE_MODEL_CONFIG is required");
+        }
+        if (multiSentenceTextToSpeak == null || multiSentenceTextToSpeak.isBlank()) {
+            throw new ConfigurationException("env var MULTI_SENTENCE_TEXT_TO_SPEAK is required");
+        }
+
+        try (var voice = PiperJNI.loadVoice(Paths.get(voiceModel), Path.of(voiceModelConfig))) {
+            assertNotNull(voice);
+            PiperSynthesizeOptions defaultOpts = voice.getOptions();
+            short[] noSilence =
+                    voice.textToAudio(
+                            multiSentenceTextToSpeak, defaultOpts.withSentenceSilence(0.0f));
+            short[] withSilence =
+                    voice.textToAudio(
+                            multiSentenceTextToSpeak, defaultOpts.withSentenceSilence(0.5f));
+            assertNotNull(noSilence);
+            assertNotNull(withSilence);
+            assertTrue(
+                    withSilence.length > noSilence.length,
+                    "Multi-sentence audio with sentence silence should be longer than without"
+                            + " silence");
         }
     }
 

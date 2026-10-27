@@ -150,11 +150,12 @@ endif()
 add_library(piper-jni SHARED
     src/main/native/io_github_jvoiceproject_piperjni_internal_PiperBinding.cpp
     ${PIPER_SRC_DIR}/libpiper/src/piper.cpp
+    ${PIPER_SRC_DIR}/libpiper/src/chinese_phonemizer.cpp
 )
 
 add_dependencies(piper-jni espeak_ng_external)
 
-target_compile_definitions(piper-jni PUBLIC _PIPER_VERSION=${piper_version})
+target_compile_definitions(piper-jni PUBLIC PIPER_VERSION=${piper_version} BUILDING_LIBPIPER)
 if(WIN32)
     target_compile_definitions(piper-jni PUBLIC ESPEAK_NG_STATIC LIBESPEAK_NG_EXPORT)
 endif()
