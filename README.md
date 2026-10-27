@@ -134,7 +134,7 @@ Optionally, you can override the voice model name, download URL as well as the t
 
 If you want to add any missing piper functionality, you need to:
 
-* Add the native method description in [`PiperJNI.java`](src/main/java/io/github/jvoiceproject/piperjni/PiperJNI.java).
-* Run the `gen_header.sh` script to regenerate the [`io_github_jvoiceproject_piperjni_PiperJNI.h`](src/main/native/io_github_jvoiceproject_piperjni_PiperJNI.h) header file. 
-* Add the native method implementation in [`io_github_jvoiceproject_piperjni_PiperJNI.cpp`](src/main/native/io_github_jvoiceproject_piperjni_PiperJNI.cpp).
-* Add a new test for it at [`PiperJNITest.java`](src/test/java/io/github/jvoice/piperjni/PiperJNITest.java).
+* Add the native method description in [`PiperBinding.java`](src/main/java/io/github/jvoiceproject/piperjni/internal/PiperBinding.java).
+* Run the `gen_header.sh` script to regenerate the [`io_github_jvoiceproject_piperjni_internal_PiperBinding.h`](src/main/native/io_github_jvoiceproject_piperjni_internal_PiperBinding.h) header file. 
+* Add the native method implementation in [`io_github_jvoiceproject_piperjni_internal_PiperBinding.cpp`](src/main/native/io_github_jvoiceproject_piperjni_internal_PiperBinding.cpp).
+* Add a new test for it at [`PiperJNITest.java`](src/test/java/io/github/jvoiceproject/piperjni/PiperJNITest.java).
