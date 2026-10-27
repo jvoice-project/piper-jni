@@ -248,9 +248,16 @@ jobs:
         run: |
           ./mvnw -B clean deploy -DskipTests -Pci-cd
           VERSION=$(./mvnw help:evaluate -Dexpression=project.version -q -DforceStdout)
-          PIPER_VERSION=$(echo "${VERSION%%"-"*}")
+
+          # Remove suffix like -SNAPSHOT
+          PIPER_VERSION="${VERSION%%-*}"
+          # Split x.y.z.v
+          BASE_VERSION="${PIPER_VERSION%.*}" # x.y.z
+          REVISION="${PIPER_VERSION##*.}"    # v
+
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "PIPER_VERSION=$PIPER_VERSION" >> $GITHUB_OUTPUT
+          echo "PIPER_VERSION=$BASE_VERSION" >> $GITHUB_OUTPUT
+          echo "REVISION=$REVISION" >> $GITHUB_OUTPUT
         env:
           MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_USERNAME }}
           MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_TOKEN }}
@@ -263,7 +270,7 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
-          body: A JNI wrapper for Piper v${{ steps.deploy.outputs.PIPER_VERSION }}
+          body: A JNI wrapper for Piper v${{ steps.deploy.outputs.PIPER_VERSION }}, revision ${{ steps.deploy.outputs.REVISION }}
           files: |
             target/piper-jni-${{ steps.deploy.outputs.VERSION }}.jar
         env:
