@@ -155,7 +155,7 @@ add_library(piper-jni SHARED
 
 add_dependencies(piper-jni espeak_ng_external)
 
-target_compile_definitions(piper-jni PUBLIC PIPER_VERSION=${piper_version} BUILDING_LIBPIPER)
+target_compile_definitions(piper-jni PUBLIC PIPER_VERSION=${piper_version})
 if(WIN32)
     target_compile_definitions(piper-jni PUBLIC ESPEAK_NG_STATIC LIBESPEAK_NG_EXPORT)
 endif()
