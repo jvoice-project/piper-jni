@@ -114,6 +114,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
     if (!local_cls_opt) return JNI_ERR;
     cls_options = reinterpret_cast<jclass>(env->NewGlobalRef(local_cls_opt));
     mid_options_ctor = env->GetMethodID(cls_options, "<init>", "(IFFF)V");
+    if (!mid_options_ctor) return JNI_ERR;
     mid_opt_speakerId = env->GetMethodID(cls_options, "speakerId", "()I");
     mid_opt_lengthScale = env->GetMethodID(cls_options, "lengthScale", "()F");
     mid_opt_noiseScale = env->GetMethodID(cls_options, "noiseScale", "()F");
@@ -136,14 +137,22 @@ JNIEXPORT void JNICALL JNI_OnUnload(JavaVM *vm, void *) {
     }
 }
 
-JNIEXPORT jlong JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1create
-  (JNIEnv *env, jclass, jstring modelPath, jstring configPath, jstring espeakDataPath) {
+JNIEXPORT jlong JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1create_1with_1options
+  (JNIEnv *env, jclass, jstring modelPath, jstring configPath, jstring espeakDataPath, jstring g2pwModelDir) {
     try {
         JNIString cModelPath(env, modelPath);
-        JNIString cModelConfigPath(env, configPath);
+        JNIString cConfigPath(env, configPath);
         JNIString cEspeakDataPath(env, espeakDataPath);
+        JNIString cG2pwModelDir(env, g2pwModelDir);
 
-        piper_synthesizer *synth = piper_create(cModelPath, cModelConfigPath, cEspeakDataPath);
+        piper_create_options opts;
+        piper_init_create_options(&opts);
+        opts.model_path = cModelPath.get();
+        opts.config_path = cConfigPath.get();
+        opts.espeak_data_path = cEspeakDataPath.get();
+        opts.g2pw_model_dir = cG2pwModelDir.get();
+
+        piper_synthesizer *synth = piper_create_with_options(&opts);
         return reinterpret_cast<jlong>(synth);
     } catch (...) {
         swallow_cpp_exception_and_throw_java(env);
@@ -217,11 +226,13 @@ JNIEXPORT jobject JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBi
         piper_audio_chunk chunk;
         int res = piper_synthesize_next(s, &chunk);
 
-        if (res == PIPER_DONE) {
+        // Any status other than OK or DONE is an error
+        if (res != PIPER_OK && res != PIPER_DONE) {
+            throwJava(env, "java/io/IOException", "Failed to synthesize next chunk");
             return nullptr;
         }
-        if (res != PIPER_OK) {
-            throwJava(env, "java/io/IOException", "Failed to synthesize next chunk");
+        // No samples remaining: end of stream
+        if (chunk.num_samples == 0 || chunk.samples == nullptr) {
             return nullptr;
         }
 
@@ -242,7 +253,7 @@ JNIEXPORT jobject JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBi
                                     static_cast<jint>(chunk.sample_rate),
                                     static_cast<jboolean>(chunk.is_last));
 
-        // Delete local reference so we don't prevent GC
+        // Delete local references so we don't prevent GC
         env->DeleteLocalRef(samples);
 
         return chunk_obj;
@@ -268,14 +279,14 @@ JNIEXPORT jboolean JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperB
     if (synth == 0) return JNI_FALSE;
     try {
         piper_synthesizer *s = reinterpret_cast<piper_synthesizer *>(synth);
-        return (jboolean) !s->espeak_voice.empty();
+        return (jboolean)(s->phoneme_type == PhonemeType::Espeak && !s->espeak_voice.empty());
     } catch (...) {
         swallow_cpp_exception_and_throw_java(env);
         return JNI_FALSE;
     }
 }
 
-JNIEXPORT jstring JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1get_1version
+JNIEXPORT jstring JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1version
   (JNIEnv *env, jclass) {
-    return env->NewStringUTF(_PIPER_VERSION);
+    return env->NewStringUTF(piper_version());
 }

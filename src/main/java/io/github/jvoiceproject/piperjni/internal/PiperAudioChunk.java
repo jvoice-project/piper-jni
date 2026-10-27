@@ -27,7 +27,7 @@ package io.github.jvoiceproject.piperjni.internal;
  * @param sampleRate sample rate in Hertz
  * @param isLast true if this is the last audio chunk in the synthesis stream
  * @see <a
- *     href="https://github.com/OHF-Voice/piper1-gpl/blob/v1.4.2/libpiper/include/piper.h">piper.h</a>
+ *     href="https://github.com/OHF-Voice/piper1-gpl/blob/v1.8.0/libpiper/include/piper.h">piper.h</a>
  * @author Florian Hotze - Initial contribution
  */
 public record PiperAudioChunk(float[] samples, int numSamples, int sampleRate, boolean isLast) {}

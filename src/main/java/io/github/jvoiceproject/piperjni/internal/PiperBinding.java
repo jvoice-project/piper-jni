@@ -27,7 +27,7 @@ import java.io.IOException;
  * JNI binding for Piper.
  *
  * @see <a
- *     href="https://github.com/OHF-Voice/piper1-gpl/blob/v1.4.2/libpiper/include/piper.h">piper.h</a>
+ *     href="https://github.com/OHF-Voice/piper1-gpl/blob/v1.8.0/libpiper/include/piper.h">piper.h</a>
  * @author Florian Hotze - Initial contribution
  */
 public final class PiperBinding {
@@ -45,16 +45,20 @@ public final class PiperBinding {
     public static final int PIPER_ERR_GENERIC = -1;
 
     /**
-     * Create a Piper text-to-speech synthesizer from a voice model.
+     * Create a Piper text-to-speech synthesizer from a voice model using creation options.
      *
      * @param modelPath path to ONNX voice model file
-     * @param configPath path to JSON voice config file or null
-     * @param espeakDataPath path to the espeak-ng data directory
+     * @param configPath path to JSON voice config file or null for modelPath + <code>.json</code>
+     * @param espeakDataPath path to the espeak-ng data directory or null if not needed (text must
+     *     be phonemes)
+     * @param g2pwModelDir optional path to g2pw / pinyin dictionary directory or null for
+     *     auto-discovery
      * @return pointer address to {@code piper_synthesizer*} instance, or 0 on failure
-     * @throws IOException if the model or the configuration file doesn't exist
+     * @throws IOException if the ONNX model or JSON configuration file doesn't exist
+     * @throws IllegalArgumentException if the JSON configuration file is invalid
      */
-    public static native long piper_create(
-            String modelPath, String configPath, String espeakDataPath)
+    public static native long piper_create_with_options(
+            String modelPath, String configPath, String espeakDataPath, String g2pwModelDir)
             throws IOException, IllegalArgumentException;
 
     /**
@@ -103,6 +107,13 @@ public final class PiperBinding {
      */
     public static native PiperAudioChunk piper_synthesize_next(long handle) throws IOException;
 
+    /**
+     * Get the Piper library version string.
+     *
+     * @return piper library version
+     */
+    public static native String piper_version();
+
     // Additional methods not mirrored from piper.h
 
     /**
@@ -120,11 +131,4 @@ public final class PiperBinding {
      * @return {@code true} if eSpeak phonemes are used, {@code false} otherwise
      */
     public static native boolean piper_uses_espeak_phonemes(long handle);
-
-    /**
-     * Get the Piper library version string.
-     *
-     * @return piper library version
-     */
-    public static native String piper_get_version();
 }

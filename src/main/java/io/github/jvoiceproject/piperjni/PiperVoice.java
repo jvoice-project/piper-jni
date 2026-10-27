@@ -65,29 +65,34 @@ public class PiperVoice implements AutoCloseable {
     private final int sampleRate;
 
     /**
-     * Creates a new voice instance.
+     * Creates a new voice instance using configuration options.
      *
-     * @param modelPath the voice model path
-     * @param modelConfigPath the voice model config path
-     * @param espeakDataPath the eSpeak NG data directory path or null if eSpeak phonemes shouldn't
-     *     be used
-     * @param speakerId the speaker id
+     * @param config the voice configuration options
      * @throws FileNotFoundException if loading the voice model fails
      * @throws IllegalArgumentException if the voice model config file is invalid
      */
-    protected PiperVoice(Path modelPath, Path modelConfigPath, Path espeakDataPath, int speakerId)
-            throws FileNotFoundException {
-        Objects.requireNonNull(modelPath, "Model path can not be null");
-        Objects.requireNonNull(modelConfigPath, "Model config path can not be null");
+    protected PiperVoice(PiperVoiceConfig config) throws FileNotFoundException {
+        Objects.requireNonNull(config, "Voice configuration can not be null");
+        Path modelPath = Objects.requireNonNull(config.modelPath(), "Model path can not be null");
+        Path configPath =
+                Objects.requireNonNull(config.configPath(), "Config path can not be null");
+
         String effectiveESpeakDataPath =
-                espeakDataPath != null ? espeakDataPath.toAbsolutePath().toString() : null;
+                config.espeakDataPath() != null
+                        ? config.espeakDataPath().toAbsolutePath().toString()
+                        : null;
+        String effectiveG2pwModelDir =
+                config.g2pwModelDir() != null
+                        ? config.g2pwModelDir().toAbsolutePath().toString()
+                        : null;
 
         try {
             this.nativeHandle =
-                    PiperBinding.piper_create(
+                    PiperBinding.piper_create_with_options(
                             modelPath.toAbsolutePath().toString(),
-                            modelConfigPath.toAbsolutePath().toString(),
-                            effectiveESpeakDataPath);
+                            configPath.toAbsolutePath().toString(),
+                            effectiveESpeakDataPath,
+                            effectiveG2pwModelDir);
         } catch (IOException e) {
             throw (FileNotFoundException)
                     new FileNotFoundException("Failed to load voice model from " + modelPath)
@@ -101,11 +106,13 @@ public class PiperVoice implements AutoCloseable {
 
         PiperSynthesizeOptions initialOptions =
                 PiperBinding.piper_default_synthesize_options(this.nativeHandle);
-        if (speakerId > -1 && initialOptions != null) {
-            this.options = initialOptions.withSpeakerId(speakerId);
-        } else {
-            this.options = initialOptions;
+        if (initialOptions == null) {
+            close();
+            throw new IllegalArgumentException("Failed to load default synthesis options");
         }
+
+        int speakerId = config.speakerId() != null ? config.speakerId() : 0;
+        this.options = initialOptions.withSpeakerId(speakerId);
 
         usesESpeakPhonemes = PiperBinding.piper_uses_espeak_phonemes(nativeHandle);
 
@@ -278,6 +285,13 @@ public class PiperVoice implements AutoCloseable {
                 throw new IOException("Failed to start synthesis (error " + startRes + ")");
             }
 
+            int silenceSamples =
+                    effectiveOptions != null
+                            ? Math.max(
+                                    0,
+                                    (int) (sampleRate * effectiveOptions.sentenceSilenceSeconds()))
+                            : 0;
+
             PiperAudioChunk chunk;
 
             if (audioCallback != null) {
@@ -291,6 +305,13 @@ public class PiperVoice implements AutoCloseable {
                         }
                         short[] pcmChunk = AudioConverter.floatToPcm16(chunk.samples());
                         audioCallback.onAudio(pcmChunk);
+                        if (!chunk.isLast() && silenceSamples > 0) {
+                            audioCallback.onAudio(new short[silenceSamples]);
+                        }
+                    }
+                    // Defensive check
+                    if (chunk.isLast()) {
+                        break;
                     }
                 }
                 return null;
@@ -308,6 +329,15 @@ public class PiperVoice implements AutoCloseable {
                         short[] pcmChunk = AudioConverter.floatToPcm16(chunk.samples());
                         chunks.add(pcmChunk);
                         totalSamples += pcmChunk.length;
+                        if (!chunk.isLast() && silenceSamples > 0) {
+                            short[] silenceChunk = new short[silenceSamples];
+                            chunks.add(silenceChunk);
+                            totalSamples += silenceSamples;
+                        }
+                    }
+                    // Defensive check
+                    if (chunk.isLast()) {
+                        break;
                     }
                 }
 
@@ -374,6 +404,7 @@ public class PiperVoice implements AutoCloseable {
     }
 
     /** Callback for streamed audio segments. */
+    @FunctionalInterface
     public interface AudioCallback {
         /**
          * Called once on each generated voice segment.

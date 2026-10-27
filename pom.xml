@@ -5,7 +5,7 @@
 
   <groupId>io.github.jvoice-project</groupId>
   <artifactId>piper-jni</artifactId>
-  <version>1.4.2.2-SNAPSHOT</version>
+  <version>1.8.0.0-SNAPSHOT</version>
 
   <name>piper-jni</name>
   <description>A JNI wrapper for Piper</description>
@@ -57,6 +57,7 @@
     <test.model.name>es_ES-sharvard-medium.onnx</test.model.name>
     <test.model.url>https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/sharvard/medium</test.model.url>
     <test.text>Buenos días</test.text>
+    <test.multiSentenceText>Buenos días. ¿Cómo estás hoy?</test.multiSentenceText>
   </properties>
 
   <dependencies>
@@ -113,6 +114,7 @@
             <VOICE_MODEL>${test.resources.dir}/${test.model.name}</VOICE_MODEL>
             <VOICE_MODEL_CONFIG>${test.resources.dir}/${test.model.name}.json</VOICE_MODEL_CONFIG>
             <TEXT_TO_SPEAK>${test.text}</TEXT_TO_SPEAK>
+            <MULTI_SENTENCE_TEXT_TO_SPEAK>${test.multiSentenceText}</MULTI_SENTENCE_TEXT_TO_SPEAK>
             <OUTPUT_DIR>${test.output.dir}</OUTPUT_DIR>
           </environmentVariables>
         </configuration>

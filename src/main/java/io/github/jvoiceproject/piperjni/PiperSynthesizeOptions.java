@@ -28,12 +28,32 @@ package io.github.jvoiceproject.piperjni;
  *     single-speaker, 0.333 for multi-speaker models)
  * @param noiseWScale controls how much phonemes vary in length during synthesis (recommend 0.8 for
  *     single-speaker, 0.333 for multi-speaker models)
+ * @param sentenceSilenceSeconds seconds of silence inserted between sentences (default 0.0)
  * @see <a
- *     href="https://github.com/OHF-Voice/piper1-gpl/blob/v1.4.2/libpiper/include/piper.h">piper.h</a>
+ *     href="https://github.com/OHF-Voice/piper1-gpl/blob/v1.8.0/libpiper/include/piper.h">piper.h</a>
  * @author Florian Hotze - Initial contribution
  */
 public record PiperSynthesizeOptions(
-        int speakerId, float lengthScale, float noiseScale, float noiseWScale) {
+        int speakerId,
+        float lengthScale,
+        float noiseScale,
+        float noiseWScale,
+        float sentenceSilenceSeconds) {
+
+    /**
+     * Constructor with sentenceSilenceSeconds defaulted to 0.0f.
+     *
+     * <p>Used in the C++ JNI implementation. Must NOT be removed.
+     *
+     * @param speakerId id of speaker to use
+     * @param lengthScale how fast the text is spoken
+     * @param noiseScale controls how much noise is added during synthesis
+     * @param noiseWScale controls how much phonemes vary in length during synthesis
+     */
+    public PiperSynthesizeOptions(
+            int speakerId, float lengthScale, float noiseScale, float noiseWScale) {
+        this(speakerId, lengthScale, noiseScale, noiseWScale, 0.0f);
+    }
 
     /**
      * Return a copy of this options object with a modified speaker ID.
@@ -42,7 +62,8 @@ public record PiperSynthesizeOptions(
      * @return new {@link PiperSynthesizeOptions} instance
      */
     public PiperSynthesizeOptions withSpeakerId(int newSpeakerId) {
-        return new PiperSynthesizeOptions(newSpeakerId, lengthScale, noiseScale, noiseWScale);
+        return new PiperSynthesizeOptions(
+                newSpeakerId, lengthScale, noiseScale, noiseWScale, sentenceSilenceSeconds);
     }
 
     /**
@@ -52,7 +73,8 @@ public record PiperSynthesizeOptions(
      * @return new {@link PiperSynthesizeOptions} instance
      */
     public PiperSynthesizeOptions withLengthScale(float newLengthScale) {
-        return new PiperSynthesizeOptions(speakerId, newLengthScale, noiseScale, noiseWScale);
+        return new PiperSynthesizeOptions(
+                speakerId, newLengthScale, noiseScale, noiseWScale, sentenceSilenceSeconds);
     }
 
     /**
@@ -62,7 +84,8 @@ public record PiperSynthesizeOptions(
      * @return new {@link PiperSynthesizeOptions} instance
      */
     public PiperSynthesizeOptions withNoiseScale(float newNoiseScale) {
-        return new PiperSynthesizeOptions(speakerId, lengthScale, newNoiseScale, noiseWScale);
+        return new PiperSynthesizeOptions(
+                speakerId, lengthScale, newNoiseScale, noiseWScale, sentenceSilenceSeconds);
     }
 
     /**
@@ -72,6 +95,18 @@ public record PiperSynthesizeOptions(
      * @return new {@link PiperSynthesizeOptions} instance
      */
     public PiperSynthesizeOptions withNoiseWScale(float newNoiseWScale) {
-        return new PiperSynthesizeOptions(speakerId, lengthScale, noiseScale, newNoiseWScale);
+        return new PiperSynthesizeOptions(
+                speakerId, lengthScale, noiseScale, newNoiseWScale, sentenceSilenceSeconds);
+    }
+
+    /**
+     * Return a copy of this options object with modified inter-sentence silence.
+     *
+     * @param newSentenceSilenceSeconds seconds of silence between sentences
+     * @return new {@link PiperSynthesizeOptions} instance
+     */
+    public PiperSynthesizeOptions withSentenceSilence(float newSentenceSilenceSeconds) {
+        return new PiperSynthesizeOptions(
+                speakerId, lengthScale, noiseScale, noiseWScale, newSentenceSilenceSeconds);
     }
 }

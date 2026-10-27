@@ -1,96 +1,63 @@
-diff --git a/libpiper/include/piper_impl.hpp b/libpiper/include/piper_impl.hpp
-index aa12a1d..186d297 100644
---- a/libpiper/include/piper_impl.hpp
-+++ b/libpiper/include/piper_impl.hpp
-@@ -35,7 +35,7 @@ const float DEFAULT_NOISE_W_SCALE = 0.8f;
- const int DEFAULT_HOP_LENGTH = 256;
- 
- // onnx
--Ort::Env ort_env{ORT_LOGGING_LEVEL_WARNING, "piper"};
-+extern Ort::Env ort_env;
- 
- // espeak
- #define CLAUSE_INTONATION_FULL_STOP 0x00000000
-@@ -87,7 +87,7 @@ struct piper_synthesizer {
- };
- 
- // Get the first UTF-8 codepoint of a string
--std::optional<Phoneme> get_codepoint(std::string s) {
-+inline std::optional<Phoneme> get_codepoint(std::string s) {
-     auto view = una::views::utf8(s);
-     auto it = view.begin();
- 
-diff --git a/libpiper/src/piper.cpp b/libpiper/src/piper.cpp
-index 774e87d..ff7311a 100644
 --- a/libpiper/src/piper.cpp
 +++ b/libpiper/src/piper.cpp
-@@ -4,11 +4,22 @@
- #include <array>
+@@ -8,6 +8,7 @@
  #include <fstream>
  #include <limits>
+ #include <unordered_map>
 +#include <mutex>
  
- #include <espeak-ng/speak_lib.h>
+ #ifdef WIN32
+ #define WIN32_LEAN_AND_MEAN
+@@ -26,6 +27,9 @@
  
-+#ifdef _WIN32
-+#define NOMINMAX
-+#include <windows.h>
-+#endif
-+
  using json = nlohmann::json;
  
-+Ort::Env ort_env{ORT_LOGGING_LEVEL_WARNING, "piper"};
-+
 +static std::mutex espeak_init_mutex;
 +static bool espeak_initialized = false;
 +
- struct piper_synthesizer *piper_create(const char *model_path,
-                                        const char *config_path,
-                                        const char *espeak_data_path) {
-@@ -27,9 +38,15 @@ struct piper_synthesizer *piper_create(const char *model_path,
-     std::ifstream config_stream(config_path_str);
-     auto config = json::parse(config_stream);
+ auto piper_create_with_options(const piper_create_options *options)
+     -> struct piper_synthesizer * {
+   // onnx
+@@ -95,10 +99,15 @@
+     phoneme_type = config["phoneme_type"].get<PhonemeType>();
+   }
  
--    if (espeak_Initialize(AUDIO_OUTPUT_SYNCHRONOUS, 0, espeak_data_path, 0) <
--        0) {
--        return nullptr;
-+    {
-+        std::lock_guard<std::mutex> lock(espeak_init_mutex);
-+        if (!espeak_initialized) {
-+            if (espeak_Initialize(AUDIO_OUTPUT_SYNCHRONOUS, 0, espeak_data_path, 0) <
-+                0) {
-+                return nullptr;
-+            }
-+            espeak_initialized = true;
-+        }
-     }
+-  if (phoneme_type == PhonemeType::Espeak &&
+-      espeak_Initialize(AUDIO_OUTPUT_SYNCHRONOUS, 0, final_espeak_data_path,
+-                        0) < 0) {
+-    return nullptr;
++  if (phoneme_type == PhonemeType::Espeak) {
++    std::lock_guard<std::mutex> lock(espeak_init_mutex);
++    if (!espeak_initialized) {
++      if (espeak_Initialize(AUDIO_OUTPUT_SYNCHRONOUS, 0, final_espeak_data_path,
++                            0) < 0) {
++        return nullptr;
++      }
++      espeak_initialized = true;
++    }
+   }
  
-     piper_synthesizer *synth = new piper_synthesizer();
-@@ -96,15 +113,23 @@ struct piper_synthesizer *piper_create(const char *model_path,
-     synth->session_options.DisableMemPattern();
-     synth->session_options.DisableProfiling();
- 
--    synth->session = std::make_unique<Ort::Session>(
--        Ort::Session(ort_env, model_path, synth->session_options));
-+    #ifdef _WIN32
-+        // Windows: ONNX Runtime required wchar_t for file paths
-+        int size_needed = MultiByteToWideChar(CP_UTF8, 0, model_path, -1, NULL, 0);
-+        std::wstring model_path_w(size_needed, 0);
-+        MultiByteToWideChar(CP_UTF8, 0, model_path, -1, &model_path_w[0], size_needed);
-+        synth->session = std::make_unique<Ort::Session>(
-+            Ort::Session(ort_env, model_path_w.c_str(), synth->session_options));
-+    #else
-+        // Linux/macOS: ONNX Runtime uses standard char
-+        synth->session = std::make_unique<Ort::Session>(
-+            Ort::Session(ort_env, model_path, synth->session_options));
-+    #endif
- 
-     return synth;
+   auto *synth = new piper_synthesizer();
+@@ -272,9 +281,9 @@
+ #if !defined(WIN32)
+   const auto *model_path_ort = model_path;
+ #else
+-  auto sz = ::MultiByteToWideChar(CP_ACP, 0, model_path, -1, 0, 0);
++  auto sz = ::MultiByteToWideChar(CP_UTF8, 0, model_path, -1, 0, 0);
+   std::vector<wchar_t> model_path_wc(sz + 1);
+-  ::MultiByteToWideChar(CP_ACP, 0, model_path, -1, &model_path_wc[0], sz);
++  ::MultiByteToWideChar(CP_UTF8, 0, model_path, -1, &model_path_wc[0], sz);
+   auto model_path_ort = &model_path_wc[0];
+ #endif
+   synth->session = std::make_unique<Ort::Session>(
+@@ -297,9 +306,7 @@
+   if (synth == nullptr) {
+     return;
+   }
+-  if (synth->phoneme_type == PhonemeType::Espeak) {
+-    espeak_Terminate();
+-  }
++
+   delete synth;
  }
  
- void piper_free(struct piper_synthesizer *synth) {
--    espeak_Terminate();
--
-     if (!synth) {
-         return;
-     }

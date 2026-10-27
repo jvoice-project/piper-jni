@@ -15,11 +15,11 @@ extern "C" {
 #define io_github_jvoiceproject_piperjni_internal_PiperBinding_PIPER_ERR_GENERIC -1L
 /*
  * Class:     io_github_jvoiceproject_piperjni_internal_PiperBinding
- * Method:    piper_create
- * Signature: (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)J
+ * Method:    piper_create_with_options
+ * Signature: (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)J
  */
-JNIEXPORT jlong JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1create
-  (JNIEnv *, jclass, jstring, jstring, jstring);
+JNIEXPORT jlong JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1create_1with_1options
+  (JNIEnv *, jclass, jstring, jstring, jstring, jstring);
 
 /*
  * Class:     io_github_jvoiceproject_piperjni_internal_PiperBinding
@@ -55,6 +55,14 @@ JNIEXPORT jobject JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBi
 
 /*
  * Class:     io_github_jvoiceproject_piperjni_internal_PiperBinding
+ * Method:    piper_version
+ * Signature: ()Ljava/lang/String;
+ */
+JNIEXPORT jstring JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1version
+  (JNIEnv *, jclass);
+
+/*
+ * Class:     io_github_jvoiceproject_piperjni_internal_PiperBinding
  * Method:    piper_get_sample_rate
  * Signature: (J)I
  */
@@ -68,14 +76,6 @@ JNIEXPORT jint JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBindi
  */
 JNIEXPORT jboolean JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1uses_1espeak_1phonemes
   (JNIEnv *, jclass, jlong);
-
-/*
- * Class:     io_github_jvoiceproject_piperjni_internal_PiperBinding
- * Method:    piper_get_version
- * Signature: ()Ljava/lang/String;
- */
-JNIEXPORT jstring JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1get_1version
-  (JNIEnv *, jclass);
 
 #ifdef __cplusplus
 }
