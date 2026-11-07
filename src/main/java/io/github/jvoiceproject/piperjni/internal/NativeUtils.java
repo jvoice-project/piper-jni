@@ -138,16 +138,24 @@ public class NativeUtils {
      */
     public static void extractZipTo(Path archiveFile, Path destPath) throws IOException {
         Files.createDirectories(destPath); // create dest path folder(s)
+        Path normalizedDestPath = destPath.toAbsolutePath().normalize();
         try (ZipFile archive = new ZipFile(archiveFile.toFile())) {
             // sort entries by name to always create folders first
             List<? extends ZipEntry> entries =
                     archive.stream().sorted(Comparator.comparing(ZipEntry::getName)).toList();
             // copy each entry in the dest path
             for (ZipEntry entry : entries) {
-                Path entryDest = destPath.resolve(entry.getName());
+                Path entryDest = normalizedDestPath.resolve(entry.getName()).normalize();
+                if (!entryDest.startsWith(normalizedDestPath)) {
+                    throw new IOException("Bad zip entry: " + entry.getName());
+                }
                 if (entry.isDirectory()) {
-                    Files.createDirectory(entryDest);
+                    Files.createDirectories(entryDest);
                     continue;
+                }
+                Path parent = entryDest.getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
                 }
                 Files.copy(archive.getInputStream(entry), entryDest);
             }
