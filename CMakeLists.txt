@@ -179,6 +179,23 @@ target_link_libraries(piper-jni
     $<$<NOT:$<PLATFORM_ID:Windows>>:pthread>
 )
 
+# Ensure default visibility is hidden across the target
+set_target_properties(piper-jni PROPERTIES
+    C_VISIBILITY_PRESET hidden
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+)
+
+# Isolate symbols from libonnxruntime / host
+if(NOT WIN32 AND NOT APPLE)
+    target_link_options(piper-jni PRIVATE
+        -static-libgcc
+        -static-libstdc++
+        "-Wl,--exclude-libs,ALL"
+        "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/main/native/piper-jni.version"
+    )
+endif()
+
 # Asset Packaging (espeak-ng-data)
 set(ESPEAKNG_DATA_SRC ${ESPEAKNG_INSTALL_DIR}/share/espeak-ng-data)
 set(ESPEAKNG_DATA_ZIP ${CMAKE_CURRENT_BINARY_DIR}/espeak-ng-data.zip)

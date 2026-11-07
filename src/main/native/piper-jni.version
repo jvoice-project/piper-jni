@@ -1,0 +1,8 @@
+{
+    global:
+        JNI_OnLoad;
+        JNI_OnUnload;
+        Java_io_github_jvoiceproject_piperjni_*;
+    local:
+        *;
+};
