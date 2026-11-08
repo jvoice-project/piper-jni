@@ -177,6 +177,7 @@ target_link_libraries(piper-jni
     onnxruntime
     $<$<PLATFORM_ID:Windows>:User32.lib>
     $<$<NOT:$<PLATFORM_ID:Windows>>:pthread>
+    $<$<NOT:$<PLATFORM_ID:Windows,Darwin>>:-static-libgcc -static-libstdc++>
 )
 
 # Ensure default visibility is hidden across the target
