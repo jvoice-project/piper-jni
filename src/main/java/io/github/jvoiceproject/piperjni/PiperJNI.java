@@ -136,13 +136,13 @@ public final class PiperJNI {
             }
         } else if (osName.contains("nix") || osName.contains("nux") || osName.contains("aix")) {
             if (osArch.contains("amd64") || osArch.contains("x86_64")) {
-                NativeUtils.loadLibraryResource("/debian-amd64/libonnxruntime_providers_shared.so");
-                NativeUtils.loadLibraryResource("/debian-amd64/libonnxruntime.so");
-                bundleLibraryPath = "/debian-amd64/libpiper-jni.so";
+                NativeUtils.loadLibraryResource("/linux-amd64/libonnxruntime_providers_shared.so");
+                NativeUtils.loadLibraryResource("/linux-amd64/libonnxruntime.so");
+                bundleLibraryPath = "/linux-amd64/libpiper-jni.so";
             } else if (osArch.contains("aarch64") || osArch.contains("arm64")) {
-                NativeUtils.loadLibraryResource("/debian-arm64/libonnxruntime_providers_shared.so");
-                NativeUtils.loadLibraryResource("/debian-arm64/libonnxruntime.so");
-                bundleLibraryPath = "/debian-arm64/libpiper-jni.so";
+                NativeUtils.loadLibraryResource("/linux-arm64/libonnxruntime_providers_shared.so");
+                NativeUtils.loadLibraryResource("/linux-arm64/libonnxruntime.so");
+                bundleLibraryPath = "/linux-arm64/libpiper-jni.so";
             }
         } else if (osName.contains("mac") || osName.contains("darwin")) {
             if (osArch.contains("amd64") || osArch.contains("x86_64")) {

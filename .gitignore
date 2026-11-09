@@ -1,40 +1,14 @@
-target/
-!.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
-src/main/resources/**/*.so*
-src/main/resources/**/*.dylib
-src/main/resources/**/*.dll
-src/main/resources/**/*.zip
-src/main/resources/**/*.ort
-build/
-test-data
-*.wav
-
-### IntelliJ IDEA ###
-.idea
-*.iws
+# IDEs
+.vscode
+.idea/
 *.iml
-*.ipr
 
-### Eclipse ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
+# CMake & Java build artefacts
+target/
+# Native build artefacts
+src/main/resources/espeak-ng-data.zip
+src/main/resources/native/linux-*
+src/main/resources/native/macos-*
+src/main/resources/native/windows-*
 
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-
-### VS Code ###
-.vscode/
-
-### Mac OS ###
 .DS_Store

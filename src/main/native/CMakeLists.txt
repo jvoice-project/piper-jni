@@ -10,16 +10,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(ExternalProject)
 include(GNUInstallDirs)
 
+set(PIPER_SUBMODULE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/piper")
+
 # Apply patches to piper submodule
 set(PIPER_SRC_DIR "${CMAKE_CURRENT_BINARY_DIR}/piper_patched/piper")
 
 # Copy piper source to build directory to apply patches without modifying source tree
 file(REMOVE_RECURSE "${CMAKE_CURRENT_BINARY_DIR}/piper_patched")
-file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/src/main/native/piper" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/piper_patched" PATTERN ".git" EXCLUDE)
+file(COPY "${PIPER_SUBMODULE_DIR}" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/piper_patched" PATTERN ".git" EXCLUDE)
 
 # Apply patch
 execute_process(
-    COMMAND patch -p1 -i "${CMAKE_CURRENT_SOURCE_DIR}/src/main/native/piper.patch"
+    COMMAND patch -p1 -i "${CMAKE_CURRENT_SOURCE_DIR}/piper.patch"
     WORKING_DIRECTORY "${PIPER_SRC_DIR}"
     RESULT_VARIABLE patch_result
 )
@@ -148,7 +150,7 @@ endif()
 
 # Main Target
 add_library(piper-jni SHARED
-    src/main/native/io_github_jvoiceproject_piperjni_internal_PiperBinding.cpp
+    io_github_jvoiceproject_piperjni_internal_PiperBinding.cpp
     ${PIPER_SRC_DIR}/libpiper/src/piper.cpp
     ${PIPER_SRC_DIR}/libpiper/src/chinese_phonemizer.cpp
 )
@@ -193,7 +195,7 @@ if(NOT WIN32 AND NOT APPLE)
         -static-libgcc
         -static-libstdc++
         "-Wl,--exclude-libs,ALL"
-        "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/main/native/piper-jni.version"
+        "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/piper-jni.version"
     )
 endif()
 
@@ -220,4 +222,4 @@ install(
 )
 
 # Install generated espeak-ng-data.zip
-install(FILES ${ESPEAKNG_DATA_ZIP} DESTINATION ${CMAKE_INSTALL_PREFIX}/..)
+install(FILES ${ESPEAKNG_DATA_ZIP} DESTINATION ${CMAKE_INSTALL_PREFIX}/../..)
