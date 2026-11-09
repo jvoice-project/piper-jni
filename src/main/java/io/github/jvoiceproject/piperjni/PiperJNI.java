@@ -19,7 +19,7 @@
  */
 package io.github.jvoiceproject.piperjni;
 
-import io.github.jvoiceproject.piperjni.internal.NativeUtils;
+import io.github.jvoiceproject.piperjni.internal.NativeLibraryLoader;
 import io.github.jvoiceproject.piperjni.internal.PiperBinding;
 
 import java.io.FileNotFoundException;
@@ -37,7 +37,6 @@ import java.nio.file.Path;
  */
 public final class PiperJNI {
 
-    private static volatile boolean libraryLoaded;
     private static volatile Path eSpeakDataPath;
 
     private PiperJNI() {}
@@ -118,55 +117,14 @@ public final class PiperJNI {
     /**
      * Loads the native library. Must be called before any other method.
      *
-     * @throws IOException when unable to load the native library
+     * @throws IOException when unable to extract the native library or resources
+     * @throws UnsupportedOperationException if the operating system or architecture is not
+     *     supported
+     * @throws UnsatisfiedLinkError if the native library or its dependencies cannot be linked
      */
     public static synchronized void loadLibrary() throws IOException {
-        if (libraryLoaded) {
-            return;
-        }
-
-        String bundleLibraryPath = null;
-        String osName = System.getProperty("os.name").toLowerCase();
-        String osArch = System.getProperty("os.arch").toLowerCase();
-        if (osName.contains("win")) {
-            if (osArch.contains("amd64") || osArch.contains("x86_64")) {
-                NativeUtils.loadLibraryResource("/win-amd64/onnxruntime_providers_shared.dll");
-                NativeUtils.loadLibraryResource("/win-amd64/onnxruntime.dll");
-                bundleLibraryPath = "/win-amd64/piper-jni.dll";
-            }
-        } else if (osName.contains("nix") || osName.contains("nux") || osName.contains("aix")) {
-            if (osArch.contains("amd64") || osArch.contains("x86_64")) {
-                NativeUtils.loadLibraryResource("/linux-amd64/libonnxruntime_providers_shared.so");
-                NativeUtils.loadLibraryResource("/linux-amd64/libonnxruntime.so");
-                bundleLibraryPath = "/linux-amd64/libpiper-jni.so";
-            } else if (osArch.contains("aarch64") || osArch.contains("arm64")) {
-                NativeUtils.loadLibraryResource("/linux-arm64/libonnxruntime_providers_shared.so");
-                NativeUtils.loadLibraryResource("/linux-arm64/libonnxruntime.so");
-                bundleLibraryPath = "/linux-arm64/libpiper-jni.so";
-            }
-        } else if (osName.contains("mac") || osName.contains("darwin")) {
-            if (osArch.contains("amd64") || osArch.contains("x86_64")) {
-                NativeUtils.loadLibraryResource("/macos-amd64/libonnxruntime.dylib");
-                bundleLibraryPath = "/macos-amd64/libpiper-jni.dylib";
-            } else if (osArch.contains("aarch64") || osArch.contains("arm64")) {
-                NativeUtils.loadLibraryResource("/macos-arm64/libonnxruntime.dylib");
-                bundleLibraryPath = "/macos-arm64/libpiper-jni.dylib";
-            }
-        }
-        if (bundleLibraryPath == null) {
-            throw new FileNotFoundException(
-                    "piper-jni: Unsupported platform " + osName + " - " + osArch + ".");
-        }
-        NativeUtils.loadLibraryResource(bundleLibraryPath);
-
-        Path path = NativeUtils.getESpeakNGData();
-        if (path == null) {
-            eSpeakDataPath = null;
-        } else {
-            eSpeakDataPath = path.toAbsolutePath();
-        }
-
-        libraryLoaded = true;
+        NativeLibraryLoader.load();
+        eSpeakDataPath = NativeLibraryLoader.getESpeakNGData();
     }
 
     /**
@@ -175,7 +133,7 @@ public final class PiperJNI {
      * @throws IllegalStateException if the native library is not loaded
      */
     private static void assertRegistered() throws IllegalStateException {
-        if (!libraryLoaded) {
+        if (!NativeLibraryLoader.isLoaded()) {
             throw new IllegalStateException("Piper library not loaded");
         }
     }
