@@ -37,8 +37,6 @@ import java.nio.file.Path;
  */
 public final class PiperJNI {
 
-    private static volatile Path eSpeakDataPath;
-
     private PiperJNI() {}
 
     /**
@@ -75,8 +73,9 @@ public final class PiperJNI {
         }
 
         PiperVoiceConfig effectiveConfig = config;
-        if (config.espeakDataPath() == null && eSpeakDataPath != null) {
-            effectiveConfig = config.withEspeakDataPath(eSpeakDataPath);
+        Path espeakDataPath = NativeLibraryLoader.getLoadedESpeakNGData();
+        if (config.espeakDataPath() == null && espeakDataPath != null) {
+            effectiveConfig = config.withEspeakDataPath(espeakDataPath);
         }
         return new PiperVoice(effectiveConfig);
     }
@@ -110,7 +109,6 @@ public final class PiperJNI {
         return loadVoice(
                 new PiperVoiceConfig(modelPath)
                         .withConfigPath(modelConfigPath)
-                        .withEspeakDataPath(eSpeakDataPath)
                         .withSpeakerId(speakerId));
     }
 
@@ -124,7 +122,6 @@ public final class PiperJNI {
      */
     public static synchronized void loadLibrary() throws IOException {
         NativeLibraryLoader.load();
-        eSpeakDataPath = NativeLibraryLoader.getESpeakNGData();
     }
 
     /**

@@ -1,3 +1,4 @@
+#!/bin/bash
 set -xe
 
 AARCH=${1:-$(uname -m)}

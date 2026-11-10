@@ -58,6 +58,7 @@ public final class NativeLibraryLoader {
             synchronized (NativeLibraryLoader.class) {
                 if (!loaded) {
                     loadLibraries();
+                    espeakNGDir = locateOrExtractESpeakNGData();
                     loaded = true;
                 }
             }
@@ -123,7 +124,7 @@ public final class NativeLibraryLoader {
     }
 
     private static Path extractFromResources() throws IOException {
-        Platform platform = Platform.CURRENT;
+        Platform platform = Platform.current();
         String resourcePath = platform.resourcePath();
         if (NativeLibraryLoader.class.getResource(resourcePath) == null) {
             throw new FileNotFoundException(
@@ -147,15 +148,14 @@ public final class NativeLibraryLoader {
         }
     }
 
-    private static boolean copyResource(String resource, Path target) throws IOException {
+    private static void copyResource(String resource, Path target) throws IOException {
         try (InputStream is = NativeLibraryLoader.class.getResourceAsStream(resource)) {
             if (is == null) {
-                return false;
+                throw new FileNotFoundException("Resource not found on classpath: " + resource);
             }
             try (OutputStream os = Files.newOutputStream(target)) {
                 is.transferTo(os);
             }
-            return true;
         }
     }
 
@@ -166,12 +166,19 @@ public final class NativeLibraryLoader {
         for (String depName : getPlatformDependentLibraries()) {
             Path depPath = libDir.resolve(depName);
             if (Files.isRegularFile(depPath)) {
-                try {
-                    System.load(depPath.toAbsolutePath().toString());
-                } catch (UnsatisfiedLinkError | SecurityException ignored) {
-                }
+                System.load(depPath.toAbsolutePath().toString());
             }
         }
+    }
+
+    /**
+     * Returns the eSpeak NG data directory path that was resolved when {@link #load()} was called,
+     * or {@code null} if not loaded or not available.
+     *
+     * @return eSpeak NG data directory path, or {@code null}
+     */
+    public static Path getLoadedESpeakNGData() {
+        return espeakNGDir;
     }
 
     /**
@@ -225,7 +232,7 @@ public final class NativeLibraryLoader {
         }
     }
 
-    private static void extractZipTo(Path archiveFile, Path destPath) throws IOException {
+    static void extractZipTo(Path archiveFile, Path destPath) throws IOException {
         Files.createDirectories(destPath);
         Path normalizedDest = destPath.toAbsolutePath().normalize();
         try (ZipFile archive = new ZipFile(archiveFile.toFile())) {
@@ -256,8 +263,10 @@ public final class NativeLibraryLoader {
                             new Thread(
                                     () -> deleteQuietly(dir),
                                     "piper-jni-cleanup-" + dir.getFileName()));
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalStateException e) {
             deleteQuietly(dir);
+            throw new IOException(
+                    "Failed to register cleanup hook because JVM is shutting down", e);
         }
         return dir;
     }
@@ -280,32 +289,40 @@ public final class NativeLibraryLoader {
     }
 
     static String getPlatformResourceDirectory() {
-        return Platform.CURRENT.resourceDir();
+        return Platform.current().resourceDir();
     }
 
     static String getPlatformResourcePath() {
-        return Platform.CURRENT.resourcePath();
+        return Platform.current().resourcePath();
     }
 
     static List<String> getPlatformDependentLibraries() {
-        return Platform.CURRENT.deps();
+        return Platform.current().deps();
     }
 
     static String getLibraryFileName() {
-        return Platform.CURRENT.libraryFileName();
+        return Platform.current().libraryFileName();
     }
 
     static String getLibraryExtension() {
-        return Platform.CURRENT.ext();
+        return Platform.current().ext();
     }
 
-    private record Platform(
-            String os, String arch, String ext, String libPrefix, List<String> deps) {
-        static final Platform CURRENT = detect();
+    record Platform(String os, String arch, String ext, String libPrefix, List<String> deps) {
+        private static volatile Platform current;
 
-        static Platform detect() {
-            String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-            String archName = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
+        static Platform current() {
+            Platform p = current;
+            if (p == null) {
+                p = detect(System.getProperty("os.name", ""), System.getProperty("os.arch", ""));
+                current = p;
+            }
+            return p;
+        }
+
+        static Platform detect(String rawOsName, String rawArchName) {
+            String osName = rawOsName.toLowerCase(Locale.ROOT);
+            String archName = rawArchName.toLowerCase(Locale.ROOT);
 
             String os;
             String ext;

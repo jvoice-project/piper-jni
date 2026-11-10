@@ -98,7 +98,7 @@ You can build for all supported Linux platforms (`amd64`, `arm64`) using Docker:
 ./scripts/build_linux-all.sh
 ```
 
-This uses `docker buildx` to build the native libraries and places them in `src/main/resources`.
+This uses `docker buildx` to build the native libraries and places them in `src/main/resources/native`.
 
 ### Native Build (Local)
 

@@ -1,3 +1,6 @@
+@echo off
+setlocal EnableDelayedExpansion
+
 if not "%1"=="" set "AARCH=%1"
 if "%AARCH%"=="" set "AARCH=x86-64"
 if "%AARCH%"=="x86_64" set "AARCH=x86-64"
