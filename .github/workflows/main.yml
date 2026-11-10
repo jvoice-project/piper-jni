@@ -24,17 +24,17 @@ jobs:
           # Define your matrix as a JSON object
           MATRIX_JSON='{
             "include": [
-              {"os": "ubuntu-24.04", "arch": "x86_64", "platform": "linux/amd64", "artifact_name": "debian-amd64"},
-              {"os": "ubuntu-24.04-arm", "arch": "arm64", "platform": "linux/arm64", "artifact_name": "debian-arm64"},
-              {"os": "macos-15", "arch": "amd64", "artifact_name": "macos-amd64"},
-              {"os": "macos-15", "arch": "arm64", "artifact_name": "macos-arm64"},
-              {"os": "windows-latest", "arch": "x86_64", "artifact_name": "windows-amd64"}
+              {"os": "ubuntu-24.04", "arch": "x86_64", "platform": "linux/amd64", "target": "linux-x86-64"},
+              {"os": "ubuntu-24.04-arm", "arch": "aarch64", "platform": "linux/arm64", "target": "linux-aarch64"},
+              {"os": "macos-15", "arch": "x86_64", "target": "macos-x86-64"},
+              {"os": "macos-15", "arch": "aarch64", "target": "macos-aarch64"},
+              {"os": "windows-latest", "arch": "x86_64", "target": "windows-x86-64"}
             ]
           }'
           echo "matrix=$(echo $MATRIX_JSON | jq -c .)" >> $GITHUB_OUTPUT
 
   build-lib:
-    name: Build Library (${{ matrix.artifact_name }})
+    name: Build Library (${{ matrix.target }})
     needs: setup-matrix
     strategy:
       fail-fast: false
@@ -45,14 +45,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
-      - name: Setup Cache
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
       - name: Setup Java
         uses: actions/setup-java@v6.2.0
         with:
@@ -69,18 +61,19 @@ jobs:
             --platform ${{ matrix.platform }} \
             --target export \
             --output type=local,dest=dist \
+            --file scripts/Dockerfile \
             .
       # --- macOS Build Logic ---
       - name: Build (macOS)
         if: runner.os == 'macOS'
         run: |
           mkdir -p dist/lib
-          if [ "${{ matrix.arch }}" = "amd64" ]; then
-            arch -x86_64 ./build_macos.sh x86_64
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            arch -x86_64 ./scripts/build_macos.sh x86_64
           else
-            ./build_macos.sh ${{ matrix.arch }}
+            ./scripts/build_macos.sh ${{ matrix.arch }}
           fi
-          mv src/main/resources/macos-${{ matrix.arch }}/*.dylib dist/lib
+          mv src/main/resources/native/${{ matrix.target }}/*.dylib dist/lib
           tar -cvf dist/piper-jni-libs.tar -C dist/lib .
       # --- Windows Build Logic ---
       - name: Build (Windows)
@@ -88,16 +81,16 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop' # Forces exit on error
-          .\build_win.cmd
+          .\scripts\build_win.cmd
           if (!(Test-Path dist)) { mkdir dist }
           if (!(Test-Path dist\lib)) { mkdir dist\lib }
-          move-item src\main\resources\win-amd64\*.dll .\dist\lib\
+          move-item src\main\resources\native\${{ matrix.target }}\*.dll .\dist\lib\
           tar -cvf dist\piper-jni-libs.tar -C dist\lib .
       # --- Upload Artifacts ---
       - name: Upload Library
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.artifact_name }}
+          name: ${{ matrix.target }}
           path: dist/piper-jni-libs.tar
       - name: Upload eSpeak data
         if: matrix.arch == 'x86_64' && runner.os == 'Linux'
@@ -128,12 +121,17 @@ jobs:
       - uses: actions/download-artifact@v8
       - name: Setup resources
         run: |
-          mkdir -p src/main/resources/debian-amd64 src/main/resources/debian-arm64 src/main/resources/macos-amd64 src/main/resources/macos-arm64 src/main/resources/win-amd64
-          tar -xvf ./debian-amd64/piper-jni-libs.tar -C ./src/main/resources/debian-amd64/
-          tar -xvf ./debian-arm64/piper-jni-libs.tar -C ./src/main/resources/debian-arm64/
-          tar -xvf ./macos-amd64/piper-jni-libs.tar -C ./src/main/resources/macos-amd64/
-          tar -xvf ./macos-arm64/piper-jni-libs.tar -C ./src/main/resources/macos-arm64/
-          tar -xvf ./windows-amd64/piper-jni-libs.tar -C ./src/main/resources/win-amd64/
+          mkdir -p \
+            src/main/resources/native/linux-x86-64 \
+            src/main/resources/native/linux-aarch64 \
+            src/main/resources/native/macos-x86-64 \
+            src/main/resources/native/macos-aarch64 \
+            src/main/resources/native/windows-x86-64
+          tar -xvf ./linux-x86-64/piper-jni-libs.tar -C ./src/main/resources/native/linux-x86-64/
+          tar -xvf ./linux-aarch64/piper-jni-libs.tar -C ./src/main/resources/native/linux-aarch64/
+          tar -xvf ./macos-x86-64/piper-jni-libs.tar -C ./src/main/resources/native/macos-x86-64/
+          tar -xvf ./macos-aarch64/piper-jni-libs.tar -C ./src/main/resources/native/macos-aarch64/
+          tar -xvf ./windows-x86-64/piper-jni-libs.tar -C ./src/main/resources/native/windows-x86-64/
           mv ./espeak-ng-data/*.zip ./src/main/resources/
       - name: Bundle resources as tarball
         run: |
@@ -161,7 +159,7 @@ jobs:
         run: ./mvnw -B test
 
   test-maven:
-    name: Maven Test (${{ matrix.artifact_name }})
+    name: Maven Test (${{ matrix.target }})
     needs: [setup-matrix, build-maven]
     strategy:
       fail-fast: false
@@ -200,7 +198,7 @@ jobs:
           COMMON_OPTS="-B -DforkCount=0 -Ddebug.piper.jni=true"
 
           # Specific check for macOS Intel on ARM runner
-          if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.arch }}" == "amd64" ]]; then
+          if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.arch }}" == "x86_64" ]]; then
             echo "Running tests via Rosetta for x86_64"
             arch -x86_64 ./mvnw $COMMON_OPTS test
           else

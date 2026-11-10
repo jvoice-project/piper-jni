@@ -10,7 +10,7 @@ Create a new release:
 Push the tag to GitHub:
 
 ```shell
-git push --tags
+git push origin main --follow-tags
 ```
 
 GitHub Actions will publish the artifacts to Maven Central.

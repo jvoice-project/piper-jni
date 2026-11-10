@@ -95,20 +95,20 @@ git submodule update --init
 You can build for all supported Linux platforms (`amd64`, `arm64`) using Docker:
 
 ```shell
-./build_linux-all.sh
+./scripts/build_linux-all.sh
 ```
 
-This uses `docker buildx` to build the native libraries and places them in `src/main/resources`.
+This uses `docker buildx` to build the native libraries and places them in `src/main/resources/native`.
 
 ### Native Build (Local)
 
 If you prefer to build locally for your current platform:
 
-- **Linux:** Run `./build_linux.sh`
-- **macOS:** Run `./build_macos.sh`
-- **Windows:** Run `.\build_win.cmd`
+- **Linux:** Run `./scripts/build_linux.sh`
+- **macOS:** Run `./scripts/build_macos.sh`
+- **Windows:** Run `.\scripts\build_win.cmd`
 
-These scripts compile the JNI shared library and copy it directly to the corresponding `src/main/resources` folder.
+These scripts compile the JNI shared library and copy it directly to the corresponding `src/main/resources/native` folder.
 
 ### Java Build
 

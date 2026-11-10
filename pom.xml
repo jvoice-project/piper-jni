@@ -275,9 +275,6 @@
             <root>src/main/java</root>
             <root>src/test/java</root>
           </roots>
-          <excludes>
-            <exclude>**/NativeUtils.java</exclude>
-          </excludes>
         </configuration>
         <executions>
           <execution>

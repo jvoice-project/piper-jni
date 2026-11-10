@@ -28,8 +28,3 @@ onnxruntime
 * License: MIT License
 * Project: https://onnxruntime.ai/
 * Source: https://github.com/microsoft/onnxruntime
-
-NativeUtils
-* License: MIT License
-* Project: https://github.com/adamheinrich/native-utils
-* Source: https://github.com/adamheinrich/native-utils
