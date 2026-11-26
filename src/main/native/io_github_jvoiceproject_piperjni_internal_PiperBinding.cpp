@@ -3,6 +3,10 @@
 #include "piper_impl.hpp"
 #include <json.hpp>
 #include <onnxruntime_cxx_api.h>
+#include <cstdint>
+#include <stdexcept>
+#include <string>
+#include <vector>
 #include <new>
 #include <filesystem>
 
@@ -57,31 +61,70 @@ static void swallow_cpp_exception_and_throw_java(JNIEnv *env) {
     }
 }
 
-// RAII Wrapper for JNI String
-class JNIString {
-    JNIEnv* env;
-    jstring jstr;
-    const char* cstr;
-
-public:
-    JNIString(JNIEnv* env, jstring jstr) : env(env), jstr(jstr), cstr(nullptr) {
-        if (env && jstr) {
-            cstr = env->GetStringUTFChars(jstr, nullptr);
-            if (!cstr) {
-                throw std::bad_alloc();
+/// Converts UTF-16 (as used by Java strings) to standard UTF-8.
+/// Unpaired surrogates are replaced with U+FFFD.
+static std::string utf16_to_utf8(const jchar *s, size_t n) {
+    std::string out;
+    out.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        uint32_t cp = s[i];
+        if (cp >= 0xD800 && cp <= 0xDBFF) {
+            if (i + 1 < n && s[i + 1] >= 0xDC00 && s[i + 1] <= 0xDFFF) {
+                cp = 0x10000 + ((cp - 0xD800) << 10) + (static_cast<uint32_t>(s[i + 1]) - 0xDC00);
+                ++i;
+            } else {
+                cp = 0xFFFD;
             }
+        } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
+            cp = 0xFFFD;
+        }
+        if (cp < 0x80) {
+            out.push_back(static_cast<char>(cp));
+        } else if (cp < 0x800) {
+            out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+        } else if (cp < 0x10000) {
+            out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+            out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+        } else {
+            out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+            out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+            out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
         }
     }
-    ~JNIString() {
-        if (env && jstr && cstr) {
-            env->ReleaseStringUTFChars(jstr, cstr);
+    return out;
+}
+
+/// Java string converted to standard UTF-8 (unlike GetStringUTFChars, which returns modified UTF-8
+/// and encodes supplementary characters as surrogate pairs).
+/// get() returns nullptr for a null jstring.
+class JNIString {
+    std::string str;
+    bool isNull = true;
+
+public:
+    JNIString(JNIEnv* env, jstring jstr) {
+        if (!env || !jstr) {
+            return;
         }
+        jsize len = env->GetStringLength(jstr);
+        std::vector<jchar> chars(static_cast<size_t>(len));
+        if (len > 0) {
+            env->GetStringRegion(jstr, 0, len, chars.data());
+            if (env->ExceptionCheck()) {
+                throw std::runtime_error("Failed to read Java string");
+            }
+        }
+        str = utf16_to_utf8(chars.data(), chars.size());
+        isNull = false;
     }
     JNIString(const JNIString&) = delete; // disable copy constructor
     JNIString& operator=(const JNIString&) = delete; // disable copy assignment operator
 
-    const char* get() const { return cstr; }
-    operator const char*() const { return cstr; }
+    const char* get() const { return isNull ? nullptr : str.c_str(); }
+    operator const char*() const { return get(); }
 };
 
 // Cached class and constructor IDs for PiperAudioChunk
