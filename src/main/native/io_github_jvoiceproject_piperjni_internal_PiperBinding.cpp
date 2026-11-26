@@ -201,13 +201,17 @@ JNIEXPORT jint JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBindi
         piper_synthesize_options *optionsPtr = nullptr;
 
         if (optionsObj != nullptr) {
+            // Call***Method do not throw C++ exceptions, but may leave a Java exception pending.
+            // No further JNI calls are allowed while an exception is pending, so check after each.
             options.speaker_id = env->CallIntMethod(optionsObj, mid_opt_speakerId);
-            options.length_scale = env->CallFloatMethod(optionsObj, mid_opt_lengthScale);
-            options.noise_scale = env->CallFloatMethod(optionsObj, mid_opt_noiseScale);
-            options.noise_w_scale = env->CallFloatMethod(optionsObj, mid_opt_noiseWScale);
-            optionsPtr = &options;
-            // Call***Method do not throw C++ exceptions. Return on pending exception.
             if (env->ExceptionCheck()) return io_github_jvoiceproject_piperjni_internal_PiperBinding_PIPER_ERR_GENERIC;
+            options.length_scale = env->CallFloatMethod(optionsObj, mid_opt_lengthScale);
+            if (env->ExceptionCheck()) return io_github_jvoiceproject_piperjni_internal_PiperBinding_PIPER_ERR_GENERIC;
+            options.noise_scale = env->CallFloatMethod(optionsObj, mid_opt_noiseScale);
+            if (env->ExceptionCheck()) return io_github_jvoiceproject_piperjni_internal_PiperBinding_PIPER_ERR_GENERIC;
+            options.noise_w_scale = env->CallFloatMethod(optionsObj, mid_opt_noiseWScale);
+            if (env->ExceptionCheck()) return io_github_jvoiceproject_piperjni_internal_PiperBinding_PIPER_ERR_GENERIC;
+            optionsPtr = &options;
         }
 
         return piper_synthesize_start(reinterpret_cast<piper_synthesizer *>(synth), cText, optionsPtr);
@@ -264,26 +268,17 @@ JNIEXPORT jobject JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBi
 }
 
 JNIEXPORT jint JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1get_1sample_1rate
-  (JNIEnv *env, jclass, jlong synth) {
+  (JNIEnv *, jclass, jlong synth) {
     if (synth == 0) return 0;
-    try {
-        return reinterpret_cast<piper_synthesizer *>(synth)->sample_rate;
-    } catch (...) {
-        swallow_cpp_exception_and_throw_java(env);
-        return 0;
-    }
+    return reinterpret_cast<piper_synthesizer *>(synth)->sample_rate;
 }
 
 JNIEXPORT jboolean JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1uses_1espeak_1phonemes
-  (JNIEnv *env, jclass, jlong synth) {
+  (JNIEnv *, jclass, jlong synth) {
     if (synth == 0) return JNI_FALSE;
-    try {
-        piper_synthesizer *s = reinterpret_cast<piper_synthesizer *>(synth);
-        return (jboolean)(s->phoneme_type == PhonemeType::Espeak && !s->espeak_voice.empty());
-    } catch (...) {
-        swallow_cpp_exception_and_throw_java(env);
-        return JNI_FALSE;
-    }
+    // Plain field reads; nothing here can throw
+    const piper_synthesizer *s = reinterpret_cast<const piper_synthesizer *>(synth);
+    return (jboolean)(s->phoneme_type == PhonemeType::Espeak && !s->espeak_voice.empty());
 }
 
 JNIEXPORT jstring JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1version
