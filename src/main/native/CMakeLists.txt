@@ -76,59 +76,81 @@ ExternalProject_Add(espeak_ng_external
 )
 
 # Dependency: ONNX Runtime
-set(ONNXRUNTIME_VERSION "1.22.0")
-if(WIN32)
-    # Windows x86_64
-    set(ONNXRUNTIME_PREFIX "onnxruntime-win-x64-${ONNXRUNTIME_VERSION}")
-    set(ONNXRUNTIME_EXT "zip")
-elseif(APPLE)
-    if(CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64)
-        # macOS x86_64
-        set(ONNXRUNTIME_PREFIX "onnxruntime-osx-x86_64-${ONNXRUNTIME_VERSION}")
-    elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL arm64)
-        # MacOS Apple Silicon
-        set(ONNXRUNTIME_PREFIX "onnxruntime-osx-arm64-${ONNXRUNTIME_VERSION}")
-    else()
-        message(FATAL_ERROR "Unsupported architecture for onnxruntime")
-    endif()
-    set(ONNXRUNTIME_EXT "tgz")
-else()
-    if(CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64)
-        # Linux x86_64
-        set(ONNXRUNTIME_PREFIX "onnxruntime-linux-x64-${ONNXRUNTIME_VERSION}")
-    elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL aarch64)
-        # Linux ARM 64-bit
-        set(ONNXRUNTIME_PREFIX "onnxruntime-linux-aarch64-${ONNXRUNTIME_VERSION}")
-    else()
-        message(FATAL_ERROR "Unsupported architecture for onnxruntime")
-    endif()
-    set(ONNXRUNTIME_EXT "tgz")
+# The ONNX Runtime version is defined in a single place: the <onnxruntime.version> property in pom.xml.
+# It is used for the headers compiled against here, the Maven runtime dependency and the minimum
+# version enforced at runtime by the Java layer.
+set(PIPER_JNI_POM "${CMAKE_CURRENT_SOURCE_DIR}/../../../pom.xml")
+if(NOT EXISTS "${PIPER_JNI_POM}")
+    message(FATAL_ERROR "pom.xml not found at ${PIPER_JNI_POM}; it is required to determine the ONNX Runtime version.")
+endif()
+file(READ "${PIPER_JNI_POM}" pom_content)
+string(REGEX MATCH "<onnxruntime\\.version>([0-9]+)\\.([0-9]+)\\.([0-9]+)</onnxruntime\\.version>" _ "${pom_content}")
+if(NOT CMAKE_MATCH_1)
+    message(FATAL_ERROR "Failed to extract <onnxruntime.version> from ${PIPER_JNI_POM}.")
+endif()
+set(ONNXRUNTIME_VERSION "${CMAKE_MATCH_1}.${CMAKE_MATCH_2}.${CMAKE_MATCH_3}")
+# ONNX Runtime 1.x exposes C API version x
+set(ONNXRUNTIME_API_VERSION "${CMAKE_MATCH_2}")
+message(STATUS "ONNX Runtime version (from pom.xml): ${ONNXRUNTIME_VERSION}, C API version ${ONNXRUNTIME_API_VERSION}")
+
+if(NOT ONNXRUNTIME_DIR AND DEFINED ENV{ONNXRUNTIME_DIR})
+    set(ONNXRUNTIME_DIR "$ENV{ONNXRUNTIME_DIR}")
 endif()
 
-set(ONNXRUNTIME_URL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/${ONNXRUNTIME_PREFIX}.${ONNXRUNTIME_EXT}")
-set(ONNXRUNTIME_EXTRACT_DIR "${CMAKE_CURRENT_BINARY_DIR}/onnxruntime")
-set(ONNXRUNTIME_DIR "${ONNXRUNTIME_EXTRACT_DIR}/${ONNXRUNTIME_PREFIX}")
-
-if(NOT EXISTS "${ONNXRUNTIME_DIR}")
-    message(STATUS "Downloading ONNX Runtime: ${ONNXRUNTIME_URL}")
-
-    file(DOWNLOAD
-        "${ONNXRUNTIME_URL}"
-        "${CMAKE_CURRENT_BINARY_DIR}/ort_pkg.${ONNXRUNTIME_EXT}"
-        STATUS download_status
-        LOG download_log
-    )
-
-    list(GET download_status 0 error_code)
-    list(GET download_status 1 error_message)
-    if(NOT error_code EQUAL 0)
-        message(FATAL_ERROR "Failed to download ONNX Runtime from ${ONNXRUNTIME_URL}: ${error_message}\n${download_log}")
+if(NOT ONNXRUNTIME_DIR)
+    if(WIN32)
+        # Windows x86_64
+        set(ONNXRUNTIME_PREFIX "onnxruntime-win-x64-${ONNXRUNTIME_VERSION}")
+        set(ONNXRUNTIME_EXT "zip")
+    elseif(APPLE)
+        if(CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64)
+            # macOS x86_64
+            set(ONNXRUNTIME_PREFIX "onnxruntime-osx-x86_64-${ONNXRUNTIME_VERSION}")
+        elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL arm64)
+            # MacOS Apple Silicon
+            set(ONNXRUNTIME_PREFIX "onnxruntime-osx-arm64-${ONNXRUNTIME_VERSION}")
+        else()
+            message(FATAL_ERROR "Unsupported architecture for onnxruntime")
+        endif()
+        set(ONNXRUNTIME_EXT "tgz")
+    else()
+        if(CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64)
+            # Linux x86_64
+            set(ONNXRUNTIME_PREFIX "onnxruntime-linux-x64-${ONNXRUNTIME_VERSION}")
+        elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL aarch64)
+            # Linux ARM 64-bit
+            set(ONNXRUNTIME_PREFIX "onnxruntime-linux-aarch64-${ONNXRUNTIME_VERSION}")
+        else()
+            message(FATAL_ERROR "Unsupported architecture for onnxruntime")
+        endif()
+        set(ONNXRUNTIME_EXT "tgz")
     endif()
 
-    file(ARCHIVE_EXTRACT
-        INPUT "${CMAKE_CURRENT_BINARY_DIR}/ort_pkg.${ONNXRUNTIME_EXT}"
-        DESTINATION "${ONNXRUNTIME_EXTRACT_DIR}"
-    )
+    set(ONNXRUNTIME_URL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/${ONNXRUNTIME_PREFIX}.${ONNXRUNTIME_EXT}")
+    set(ONNXRUNTIME_EXTRACT_DIR "${CMAKE_CURRENT_BINARY_DIR}/onnxruntime")
+    set(ONNXRUNTIME_DIR "${ONNXRUNTIME_EXTRACT_DIR}/${ONNXRUNTIME_PREFIX}")
+
+    if(NOT EXISTS "${ONNXRUNTIME_DIR}")
+        message(STATUS "Downloading ONNX Runtime: ${ONNXRUNTIME_URL}")
+
+        file(DOWNLOAD
+            "${ONNXRUNTIME_URL}"
+            "${CMAKE_CURRENT_BINARY_DIR}/ort_pkg.${ONNXRUNTIME_EXT}"
+            STATUS download_status
+            LOG download_log
+        )
+
+        list(GET download_status 0 error_code)
+        list(GET download_status 1 error_message)
+        if(NOT error_code EQUAL 0)
+            message(FATAL_ERROR "Failed to download ONNX Runtime from ${ONNXRUNTIME_URL}: ${error_message}\n${download_log}")
+        endif()
+
+        file(ARCHIVE_EXTRACT
+            INPUT "${CMAKE_CURRENT_BINARY_DIR}/ort_pkg.${ONNXRUNTIME_EXT}"
+            DESTINATION "${ONNXRUNTIME_EXTRACT_DIR}"
+        )
+    endif()
 endif()
 
 # JNI & Compiler Setup
@@ -144,7 +166,7 @@ if(MSVC)
     add_compile_options("/utf-8")
 elseif(NOT APPLE)
     # Linux flags
-    string(APPEND CMAKE_CXX_FLAGS " -Wall -Wextra -Wl,-rpath,'$ORIGIN'")
+    string(APPEND CMAKE_CXX_FLAGS " -Wall -Wextra")
     string(APPEND CMAKE_C_FLAGS " -Wall -Wextra")
 endif()
 
@@ -157,7 +179,15 @@ add_library(piper-jni SHARED
 
 add_dependencies(piper-jni espeak_ng_external)
 
-target_compile_definitions(piper-jni PUBLIC PIPER_VERSION=${piper_version})
+target_compile_definitions(piper-jni
+    PUBLIC
+        PIPER_VERSION=${piper_version}
+    PRIVATE
+        # Do not link against libonnxruntime; resolve OrtGetApiBase dynamically at runtime
+        ORT_API_MANUAL_INIT
+        # ONNX Runtime C API version expected from the headers (from pom.xml)
+        PIPER_ORT_API_VERSION=${ONNXRUNTIME_API_VERSION}
+)
 if(WIN32)
     target_compile_definitions(piper-jni PUBLIC ESPEAK_NG_STATIC LIBESPEAK_NG_EXPORT)
 endif()
@@ -169,16 +199,12 @@ target_include_directories(piper-jni PUBLIC
     ${ONNXRUNTIME_DIR}/include
 )
 
-target_link_directories(piper-jni PUBLIC
-    ${ONNXRUNTIME_DIR}/lib
-)
-
 target_link_libraries(piper-jni
     ${ESPEAKNG_STATIC_LIB}
     ${UCD_STATIC_LIB}
-    onnxruntime
     $<$<PLATFORM_ID:Windows>:User32.lib>
     $<$<NOT:$<PLATFORM_ID:Windows>>:pthread>
+    $<$<NOT:$<PLATFORM_ID:Windows>>:${CMAKE_DL_LIBS}>
     $<$<NOT:$<PLATFORM_ID:Windows,Darwin>>:-static-libgcc -static-libstdc++>
 )
 
@@ -189,7 +215,7 @@ set_target_properties(piper-jni PROPERTIES
     VISIBILITY_INLINES_HIDDEN ON
 )
 
-# Isolate symbols from libonnxruntime / host
+# Isolate symbols from host
 if(NOT WIN32 AND NOT APPLE)
     target_link_options(piper-jni PRIVATE
         -static-libgcc
@@ -211,15 +237,8 @@ add_custom_command(
 )
 add_custom_target(espeak-ng-data ALL DEPENDS ${ESPEAKNG_DATA_ZIP})
 
-# Install
+# Install (ONNX Runtime shared libraries are provided at runtime by Maven dependency)
 install(TARGETS piper-jni DESTINATION ${CMAKE_INSTALL_PREFIX})
-
-# Install ONNX Runtime libs
-install(
-    DIRECTORY ${ONNXRUNTIME_DIR}/lib/
-    DESTINATION ${CMAKE_INSTALL_PREFIX}
-    FILES_MATCHING PATTERN "*.dll" PATTERN "*.so*" PATTERN "*.dylib"
-)
 
 # Install generated espeak-ng-data.zip
 install(FILES ${ESPEAKNG_DATA_ZIP} DESTINATION ${CMAKE_INSTALL_PREFIX}/../..)

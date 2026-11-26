@@ -11,8 +11,14 @@ This library aims to support the following platforms:
 * Linux x86_64/arm64 (built with Ubuntu Focal Fossa, GLIBC version 2.31)
 * macOS x86_64/arm64 (built for macOS 14 Sonoma and newer)
 
-The JAR includes the piper-jni native library, which contains the [Piper](https://github.com/OHF-Voice/piper1-gpl) source,
-and the shared libraries it depends on: [espeak-ng](https://github.com/espeak-ng/espeak-ng) and [onxxruntime](https://onnxruntime.ai).
+The JAR includes the piper-jni native library, which statically links [Piper](https://github.com/OHF-Voice/piper1-gpl) and [espeak-ng](https://github.com/espeak-ng/espeak-ng). 
+[ONNX Runtime](https://onnxruntime.ai) is resolved dynamically at runtime from the `com.microsoft.onnxruntime:onnxruntime` Maven dependency.
+
+ONNX Runtime **1.22.0 or newer** is required; piper-jni refuses to load with an older version.
+You may upgrade the `com.microsoft.onnxruntime:onnxruntime` dependency (or replace it with e.g. `onnxruntime_gpu`),
+or point ONNX Runtime to a specific shared library using its own system properties
+`-Donnxruntime.native.onnxruntime.path=/path/to/libonnxruntime.so` (or `-Donnxruntime.native.path=/path/to/dir`);
+piper-jni binds to whichever ONNX Runtime library ONNX Runtime Java has loaded.
 
 ## Usage
 

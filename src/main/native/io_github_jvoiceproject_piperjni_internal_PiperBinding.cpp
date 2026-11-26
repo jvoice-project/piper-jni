@@ -3,8 +3,41 @@
 #include "piper_impl.hpp"
 #include <json.hpp>
 #include <onnxruntime_cxx_api.h>
-#include <new>
+#include <atomic>
+#include <cstdint>
 #include <filesystem>
+#include <mutex>
+#include <new>
+#include <string>
+#include <string_view>
+#include <vector>
+#include <cctype>
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <psapi.h>
+#include <cwctype>
+#elif defined(__APPLE__)
+#include <dlfcn.h>
+#include <mach-o/dyld.h>
+#else
+#include <dlfcn.h>
+#include <link.h>
+#endif
+
+#if !defined(PIPER_ORT_API_VERSION)
+#error "PIPER_ORT_API_VERSION must be defined by the build (derived from <onnxruntime.version> in pom.xml)"
+#endif
+
+// The ONNX Runtime headers must match the version configured in pom.xml, otherwise the C++ wrapper
+// may call into API entries that the minimum supported runtime does not provide.
+// The minimum ONNX Runtime version itself is enforced by the Java layer (NativeLibraryLoader).
+static_assert(PIPER_ORT_API_VERSION == ORT_API_VERSION,
+              "ONNX Runtime headers do not match <onnxruntime.version> from pom.xml");
+
+/// Set (with release semantics) once the ONNX Runtime API table has been initialized.
+static std::atomic<bool> ort_initialized{false};
 
 /// Java exception helper
 static void throwJava(JNIEnv *env, const char *className, const char *message) {
@@ -140,6 +173,10 @@ JNIEXPORT void JNICALL JNI_OnUnload(JavaVM *vm, void *) {
 JNIEXPORT jlong JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1create_1with_1options
   (JNIEnv *env, jclass, jstring modelPath, jstring configPath, jstring espeakDataPath, jstring g2pwModelDir) {
     try {
+        if (!ort_initialized.load(std::memory_order_acquire)) {
+            throwJava(env, "java/lang/IllegalStateException", "ONNX Runtime API is not initialized");
+            return 0;
+        }
         JNIString cModelPath(env, modelPath);
         JNIString cConfigPath(env, configPath);
         JNIString cEspeakDataPath(env, espeakDataPath);
@@ -289,4 +326,188 @@ JNIEXPORT jboolean JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperB
 JNIEXPORT jstring JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1version
   (JNIEnv *env, jclass) {
     return env->NewStringUTF(piper_version());
+}
+
+namespace {
+
+using OrtGetApiBaseFn = const OrtApiBase *(ORT_API_CALL *)(void);
+
+static std::mutex ort_init_mutex;
+static std::string ort_loaded_version; // guarded by ort_init_mutex
+
+#if defined(_WIN32)
+/// Whether the file name of a loaded module looks like an ONNX Runtime library (case-insensitive).
+static bool is_ort_library_name(const std::wstring &path) {
+    size_t sep = path.find_last_of(L"\\/");
+    std::wstring base = (sep == std::wstring::npos) ? path : path.substr(sep + 1);
+    for (wchar_t &c : base) {
+        c = static_cast<wchar_t>(std::towlower(c));
+    }
+    return base.find(L"onnxruntime") != std::wstring::npos;
+}
+#else
+/// Whether the file name of a loaded library looks like an ONNX Runtime library.
+/// The name is not required to be exactly libonnxruntime.so/.dylib, since ONNX Runtime Java can be
+/// pointed to an arbitrary file via -Donnxruntime.native.onnxruntime.path; the OrtGetApiBase
+/// symbol lookup decides in the end.
+static bool is_ort_library_name(const char *path) noexcept {
+    std::string_view view(path);
+    size_t slash = view.find_last_of('/');
+    std::string_view base = (slash == std::string_view::npos) ? view : view.substr(slash + 1);
+    constexpr std::string_view needle = "onnxruntime";
+    for (size_t i = 0; i + needle.size() <= base.size(); ++i) {
+        size_t j = 0;
+        while (j < needle.size() &&
+               std::tolower(static_cast<unsigned char>(base[i + j])) == needle[j]) {
+            ++j;
+        }
+        if (j == needle.size()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// Looks up OrtGetApiBase in an already-loaded library, without loading anything new.
+static OrtGetApiBaseFn lookup_in_loaded_library(const char *name) {
+    void *handle = dlopen(name, RTLD_LAZY | RTLD_NOLOAD);
+    if (!handle) {
+        return nullptr;
+    }
+    void *sym = dlsym(handle, "OrtGetApiBase");
+    if (!sym) {
+        dlclose(handle);
+        return nullptr;
+    }
+    // Keep the reference so the library cannot be unloaded while we use its API table.
+    return reinterpret_cast<OrtGetApiBaseFn>(sym);
+}
+#endif
+
+/// Finds OrtGetApiBase in an ONNX Runtime library that is already loaded in the current process.
+static OrtGetApiBaseFn discover_loaded_ort_library(std::string &errorOut) {
+#if defined(_WIN32)
+    HANDLE process = GetCurrentProcess();
+    std::vector<HMODULE> modules(256);
+    for (;;) {
+        DWORD needed = 0;
+        DWORD size = static_cast<DWORD>(modules.size() * sizeof(HMODULE));
+        if (!K32EnumProcessModules(process, modules.data(), size, &needed)) {
+            DWORD lastError = GetLastError();
+            errorOut = "Failed to enumerate loaded modules (Win32 error " +
+                std::to_string(lastError) + ")";
+            return nullptr;
+        }
+        if (needed <= size) {
+            modules.resize(needed / sizeof(HMODULE));
+            break;
+        }
+        modules.resize(needed / sizeof(HMODULE));
+    }
+    std::wstring name(MAX_PATH, L'\0');
+    for (HMODULE mod : modules) {
+        DWORD len;
+        for (;;) {
+            len = GetModuleFileNameW(mod, name.data(), static_cast<DWORD>(name.size()));
+            if (len == 0 || len < name.size()) {
+                break;
+            }
+            name.resize(name.size() * 2);
+        }
+        if (len == 0 || !is_ort_library_name(std::wstring(name.data(), len))) {
+            continue;
+        }
+        if (FARPROC sym = GetProcAddress(mod, "OrtGetApiBase")) {
+            return reinterpret_cast<OrtGetApiBaseFn>(sym);
+        }
+    }
+    errorOut = "ONNX Runtime library (onnxruntime.dll) is not loaded in the current process";
+    return nullptr;
+#else
+    std::vector<std::string> candidates;
+#if defined(__APPLE__)
+    uint32_t imageCount = _dyld_image_count();
+    for (uint32_t i = 0; i < imageCount; ++i) {
+        const char *imageName = _dyld_get_image_name(i);
+        if (imageName && is_ort_library_name(imageName)) {
+            candidates.emplace_back(imageName);
+        }
+    }
+#else
+    // Only collect names inside the callback: glibc holds the loader's write lock while running it,
+    // and calling dlopen() from there can deadlock against a concurrent dlopen() on another thread.
+    dl_iterate_phdr([](struct dl_phdr_info *info, size_t, void *data) -> int {
+        if (!info->dlpi_name || info->dlpi_name[0] == '\0' || !is_ort_library_name(info->dlpi_name)) {
+            return 0;
+        }
+        try {
+            static_cast<std::vector<std::string> *>(data)->emplace_back(info->dlpi_name);
+        } catch (...) {
+            return 1; // never let a C++ exception unwind through libc frames
+        }
+        return 0;
+    }, &candidates);
+#endif
+    for (const std::string &candidate : candidates) {
+        if (OrtGetApiBaseFn fn = lookup_in_loaded_library(candidate.c_str())) {
+            return fn;
+        }
+    }
+    if (void *sym = dlsym(RTLD_DEFAULT, "OrtGetApiBase")) {
+        return reinterpret_cast<OrtGetApiBaseFn>(sym);
+    }
+#if defined(__APPLE__)
+    errorOut = "ONNX Runtime library (libonnxruntime.dylib) is not loaded in the current process";
+#else
+    errorOut = "ONNX Runtime library (libonnxruntime.so) is not loaded in the current process";
+#endif
+    return nullptr;
+#endif
+}
+
+} // namespace
+
+JNIEXPORT jstring JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1init_1onnxruntime
+  (JNIEnv *env, jclass) {
+    try {
+        std::lock_guard<std::mutex> lock(ort_init_mutex);
+
+        // Initialization happens at most once per process
+        if (ort_initialized.load(std::memory_order_acquire)) {
+            return env->NewStringUTF(ort_loaded_version.c_str());
+        }
+
+        std::string errorMsg;
+        OrtGetApiBaseFn getApiBase = discover_loaded_ort_library(errorMsg);
+        if (!getApiBase) {
+            throwJava(env, "java/lang/UnsatisfiedLinkError", errorMsg.c_str());
+            return nullptr;
+        }
+
+        const OrtApiBase *apiBase = getApiBase();
+        if (!apiBase) {
+            throwJava(env, "java/lang/UnsatisfiedLinkError", "OrtGetApiBase() returned null");
+            return nullptr;
+        }
+
+        const char *versionStr = apiBase->GetVersionString ? apiBase->GetVersionString() : nullptr;
+        std::string version = versionStr ? versionStr : "";
+
+        const OrtApi *api = apiBase->GetApi(ORT_API_VERSION);
+        if (!api) {
+            std::string msg = std::string("ONNX Runtime version '") +
+                (version.empty() ? "unknown" : version) +
+                "' does not support ORT API version " + std::to_string(ORT_API_VERSION);
+            throwJava(env, "java/lang/UnsatisfiedLinkError", msg.c_str());
+            return nullptr;
+        }
+
+        Ort::InitApi(api);
+        ort_loaded_version = version;
+        ort_initialized.store(true, std::memory_order_release);
+        return env->NewStringUTF(ort_loaded_version.c_str());
+    } catch (...) {
+        swallow_cpp_exception_and_throw_java(env);
+        return nullptr;
+    }
 }

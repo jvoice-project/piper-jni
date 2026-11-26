@@ -131,4 +131,17 @@ public final class PiperBinding {
      * @return {@code true} if eSpeak phonemes are used, {@code false} otherwise
      */
     public static native boolean piper_uses_espeak_phonemes(long handle);
+
+    /**
+     * Initialize the ONNX Runtime C API table from the ONNX Runtime shared library that is already
+     * loaded in the current process (normally loaded by the ONNX Runtime Java API).
+     *
+     * <p>Initialization happens at most once per process; further calls return the cached version.
+     *
+     * @return the loaded ONNX Runtime version string
+     * @throws UnsatisfiedLinkError if no ONNX Runtime library is loaded, or it does not provide the
+     *     ORT C API version piper-jni was compiled against; the minimum version policy itself is
+     *     enforced by {@link NativeLibraryLoader}
+     */
+    public static native String piper_init_onnxruntime();
 }

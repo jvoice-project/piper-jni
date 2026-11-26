@@ -77,6 +77,14 @@ JNIEXPORT jint JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBindi
 JNIEXPORT jboolean JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1uses_1espeak_1phonemes
   (JNIEnv *, jclass, jlong);
 
+/*
+ * Class:     io_github_jvoiceproject_piperjni_internal_PiperBinding
+ * Method:    piper_init_onnxruntime
+ * Signature: ()Ljava/lang/String;
+ */
+JNIEXPORT jstring JNICALL Java_io_github_jvoiceproject_piperjni_internal_PiperBinding_piper_1init_1onnxruntime
+  (JNIEnv *, jclass);
+
 #ifdef __cplusplus
 }
 #endif
