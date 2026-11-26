@@ -27,10 +27,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
-import java.util.List;
 import java.util.Locale;
+import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
+
+import ai.onnxruntime.OrtEnvironment;
 
 /**
  * Loads and provides the native piper-jni library and dependent assets.
@@ -39,9 +43,26 @@ import java.util.zip.ZipFile;
  */
 public final class NativeLibraryLoader {
     private static final String LIB_NAME = "piper-jni";
+    private static final String ORT_PROPERTIES = "onnxruntime.properties";
+    private static final Pattern VERSION_PATTERN =
+            Pattern.compile("^(\\d+)\\.(\\d+)(?:\\.(\\d+))?");
+
+    /**
+     * Minimum ONNX Runtime version required at runtime, generated from {@code
+     * <onnxruntime.version>} in {@code pom.xml}.
+     */
+    static final String MIN_ONNX_RUNTIME_VERSION = readMinOnnxRuntimeVersion();
 
     private static volatile boolean loaded;
     private static volatile Path espeakNGDir;
+    private static volatile String onnxRuntimeVersion;
+
+    /**
+     * Path of the native library once {@link System#load(String)} succeeded. Kept so that a retry
+     * of {@link #load()} after a later failure does not load a second copy of the native library.
+     * Guarded by the class lock.
+     */
+    private static Path nativeLibraryPath;
 
     private NativeLibraryLoader() {}
 
@@ -74,11 +95,163 @@ public final class NativeLibraryLoader {
         return loaded;
     }
 
+    /**
+     * Returns the ONNX Runtime version bound when {@link #load()} was called, or {@code null} if
+     * not loaded.
+     *
+     * @return loaded ONNX Runtime version string, or {@code null}
+     */
+    public static String getLoadedOnnxRuntimeVersion() {
+        return onnxRuntimeVersion;
+    }
+
+    /**
+     * Loads the native library and initializes ONNX Runtime. Each stage is performed only once, so
+     * calling this again after a failure only retries the stages that have not completed yet. Must
+     * be called while holding the class lock.
+     */
     private static void loadLibraries() throws IOException {
-        Path libraryPath = locateLibrary();
-        loadDependencies(libraryPath.getParent());
-        System.load(libraryPath.toAbsolutePath().toString());
-        validateVersion(libraryPath);
+        if (onnxRuntimeVersion == null) {
+            LinkageError ortJavaFailure = ensureOnnxRuntimeLoaded();
+            loadNativeLibrary();
+            String ortVersion;
+            try {
+                ortVersion = PiperBinding.piper_init_onnxruntime();
+            } catch (UnsatisfiedLinkError e) {
+                UnsatisfiedLinkError error =
+                        new UnsatisfiedLinkError(
+                                e.getMessage()
+                                        + " (piper-jni requires ONNX Runtime "
+                                        + MIN_ONNX_RUNTIME_VERSION
+                                        + " or newer)");
+                error.initCause(e);
+                if (ortJavaFailure != null) {
+                    error.addSuppressed(ortJavaFailure);
+                }
+                throw error;
+            }
+            if (ortVersion == null || ortVersion.isBlank()) {
+                throw new LinkageError("Failed to initialize ONNX Runtime API: version is empty");
+            }
+            checkOnnxRuntimeVersion(ortVersion);
+            onnxRuntimeVersion = ortVersion;
+        }
+        validateVersion(nativeLibraryPath);
+    }
+
+    private static Path loadNativeLibrary() throws IOException {
+        if (nativeLibraryPath == null) {
+            Path libraryPath = locateLibrary();
+            System.load(libraryPath.toAbsolutePath().toString());
+            nativeLibraryPath = libraryPath;
+        }
+        return nativeLibraryPath;
+    }
+
+    /**
+     * Makes the ONNX Runtime Java API ({@code com.microsoft.onnxruntime:onnxruntime}) load its
+     * native library into the process, so that piper-jni can bind to it. Which library is loaded
+     * can be controlled with ONNX Runtime's own system properties {@code onnxruntime.native.path}
+     * and {@code onnxruntime.native.onnxruntime.path}.
+     *
+     * @return {@code null} on success, or the error if the ONNX Runtime Java API is not available
+     *     or failed to initialize; in that case piper-jni falls back to discovering an ONNX Runtime
+     *     library that has been loaded into the process by other means
+     */
+    private static LinkageError ensureOnnxRuntimeLoaded() {
+        String version;
+        try {
+            version = OrtJava.loadAndGetVersion();
+        } catch (LinkageError e) {
+            return e;
+        }
+        // Fail early, before loading the native library, if the ONNX Runtime is too old
+        checkOnnxRuntimeVersion(version);
+        return null;
+    }
+
+    /** Isolates references to the optional ONNX Runtime Java API. */
+    private static final class OrtJava {
+        private OrtJava() {}
+
+        static String loadAndGetVersion() {
+            return OrtEnvironment.getEnvironment().getVersion();
+        }
+    }
+
+    /**
+     * Checks that the given ONNX Runtime version is at least {@link #MIN_ONNX_RUNTIME_VERSION}.
+     *
+     * @param version ONNX Runtime version string
+     * @throws UnsatisfiedLinkError if the version is older than the minimum or cannot be parsed
+     */
+    static void checkOnnxRuntimeVersion(String version) {
+        if (compareVersions(version, MIN_ONNX_RUNTIME_VERSION) < 0) {
+            throw new UnsatisfiedLinkError(
+                    "ONNX Runtime version '"
+                            + version
+                            + "' is older than the minimum version "
+                            + MIN_ONNX_RUNTIME_VERSION
+                            + " required by piper-jni");
+        }
+    }
+
+    /**
+     * Compares two {@code major.minor[.patch]} version strings; trailing suffixes are ignored.
+     *
+     * @throws UnsatisfiedLinkError if a version cannot be parsed
+     */
+    static int compareVersions(String a, String b) {
+        int[] va = parseVersion(a);
+        int[] vb = parseVersion(b);
+        for (int i = 0; i < va.length; i++) {
+            int c = Integer.compare(va[i], vb[i]);
+            if (c != 0) {
+                return c;
+            }
+        }
+        return 0;
+    }
+
+    private static int[] parseVersion(String version) {
+        Matcher m = version == null ? null : VERSION_PATTERN.matcher(version.trim());
+        if (m == null || !m.find()) {
+            throw new UnsatisfiedLinkError(
+                    "Unable to parse ONNX Runtime version '" + version + "'");
+        }
+        try {
+            return new int[] {
+                Integer.parseInt(m.group(1)),
+                Integer.parseInt(m.group(2)),
+                m.group(3) != null ? Integer.parseInt(m.group(3)) : 0
+            };
+        } catch (NumberFormatException e) {
+            UnsatisfiedLinkError error =
+                    new UnsatisfiedLinkError(
+                            "Unable to parse ONNX Runtime version '" + version + "'");
+            error.initCause(e);
+            throw error;
+        }
+    }
+
+    private static String readMinOnnxRuntimeVersion() {
+        Properties props = new Properties();
+        try (InputStream is = NativeLibraryLoader.class.getResourceAsStream(ORT_PROPERTIES)) {
+            if (is == null) {
+                throw new IllegalStateException(
+                        "Resource " + ORT_PROPERTIES + " not found on classpath");
+            }
+            props.load(is);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to read " + ORT_PROPERTIES, e);
+        }
+        String version = props.getProperty("onnxruntime.min.version");
+        if (version == null || version.isBlank() || version.startsWith("${")) {
+            throw new IllegalStateException(
+                    "Invalid onnxruntime.min.version in " + ORT_PROPERTIES + ": " + version);
+        }
+        parseVersion(version);
+        return version.trim();
     }
 
     private static void validateVersion(Path source) {
@@ -136,9 +309,6 @@ public final class NativeLibraryLoader {
 
         Path targetDir = createManagedTempDir("piper-jni-native-");
         try {
-            for (String depName : platform.deps()) {
-                copyResource(platform.resourceDir() + "/" + depName, targetDir.resolve(depName));
-            }
             Path target = targetDir.resolve(platform.libraryFileName());
             copyResource(resourcePath, target);
             return target.toAbsolutePath();
@@ -155,18 +325,6 @@ public final class NativeLibraryLoader {
             }
             try (OutputStream os = Files.newOutputStream(target)) {
                 is.transferTo(os);
-            }
-        }
-    }
-
-    private static void loadDependencies(Path libDir) {
-        if (libDir == null || !Files.isDirectory(libDir)) {
-            return;
-        }
-        for (String depName : getPlatformDependentLibraries()) {
-            Path depPath = libDir.resolve(depName);
-            if (Files.isRegularFile(depPath)) {
-                System.load(depPath.toAbsolutePath().toString());
             }
         }
     }
@@ -296,10 +454,6 @@ public final class NativeLibraryLoader {
         return Platform.current().resourcePath();
     }
 
-    static List<String> getPlatformDependentLibraries() {
-        return Platform.current().deps();
-    }
-
     static String getLibraryFileName() {
         return Platform.current().libraryFileName();
     }
@@ -308,7 +462,7 @@ public final class NativeLibraryLoader {
         return Platform.current().ext();
     }
 
-    record Platform(String os, String arch, String ext, String libPrefix, List<String> deps) {
+    record Platform(String os, String arch, String ext, String libPrefix) {
         private static volatile Platform current;
 
         static Platform current() {
@@ -327,23 +481,19 @@ public final class NativeLibraryLoader {
             String os;
             String ext;
             String prefix;
-            List<String> deps;
 
             if (osName.contains("nux") || osName.contains("nix") || osName.contains("aix")) {
                 os = "linux";
                 ext = ".so";
                 prefix = "lib";
-                deps = List.of("libonnxruntime_providers_shared.so", "libonnxruntime.so");
             } else if (osName.contains("mac") || osName.contains("darwin")) {
                 os = "macos";
                 ext = ".dylib";
                 prefix = "lib";
-                deps = List.of("libonnxruntime.dylib");
             } else if (osName.contains("win")) {
                 os = "windows";
                 ext = ".dll";
                 prefix = "";
-                deps = List.of("onnxruntime_providers_shared.dll", "onnxruntime.dll");
             } else {
                 throw new UnsupportedOperationException("Unsupported operating system: " + osName);
             }
@@ -359,7 +509,7 @@ public final class NativeLibraryLoader {
                 throw new UnsupportedOperationException("Unsupported architecture: " + archName);
             }
 
-            return new Platform(os, arch, ext, prefix, deps);
+            return new Platform(os, arch, ext, prefix);
         }
 
         String resourceDir() {

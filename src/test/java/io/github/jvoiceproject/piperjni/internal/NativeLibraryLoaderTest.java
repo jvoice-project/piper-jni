@@ -21,17 +21,20 @@ package io.github.jvoiceproject.piperjni.internal;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import org.junit.jupiter.api.Test;
 
@@ -67,10 +70,62 @@ public class NativeLibraryLoaderTest {
     }
 
     @Test
-    public void testPlatformDependentLibraries() {
-        List<String> deps = NativeLibraryLoader.getPlatformDependentLibraries();
-        assertNotNull(deps);
-        assertFalse(deps.isEmpty(), "Platform dependent libraries should not be empty");
+    public void testNoBundledOnnxRuntimeLibrariesInResources() throws Exception {
+        URL nativeDir = NativeLibraryLoader.class.getResource("/native");
+        assumeTrue(nativeDir != null, "No native resources on the classpath");
+        assumeTrue(
+                "file".equals(nativeDir.getProtocol()),
+                "Native resources are not in a directory: " + nativeDir);
+        List<Path> ortFiles;
+        try (Stream<Path> stream = Files.walk(Path.of(nativeDir.toURI()))) {
+            ortFiles =
+                    stream.filter(Files::isRegularFile)
+                            .filter(
+                                    p ->
+                                            p.getFileName()
+                                                    .toString()
+                                                    .toLowerCase(Locale.ROOT)
+                                                    .contains("onnxruntime"))
+                            .toList();
+        }
+        assertTrue(
+                ortFiles.isEmpty(),
+                "ONNX Runtime libraries must not be bundled in piper-jni resources: " + ortFiles);
+    }
+
+    @Test
+    public void testMinOnnxRuntimeVersionFromPom() {
+        assertEquals("1.22.0", NativeLibraryLoader.MIN_ONNX_RUNTIME_VERSION);
+    }
+
+    @Test
+    public void testCompareVersions() {
+        assertEquals(0, NativeLibraryLoader.compareVersions("1.22.0", "1.22.0"));
+        assertEquals(0, NativeLibraryLoader.compareVersions("1.22", "1.22.0"));
+        assertTrue(NativeLibraryLoader.compareVersions("1.21.9", "1.22.0") < 0);
+        assertTrue(NativeLibraryLoader.compareVersions("1.9.0", "1.22.0") < 0);
+        assertTrue(NativeLibraryLoader.compareVersions("1.23.0", "1.22.0") > 0);
+        assertTrue(NativeLibraryLoader.compareVersions("2.0.0", "1.22.0") > 0);
+        assertEquals(0, NativeLibraryLoader.compareVersions("1.22.0-rc1", "1.22.0"));
+        assertThrows(
+                UnsatisfiedLinkError.class,
+                () -> NativeLibraryLoader.compareVersions("unknown", "1.22.0"));
+        assertThrows(
+                UnsatisfiedLinkError.class,
+                () -> NativeLibraryLoader.compareVersions(null, "1.22.0"));
+    }
+
+    @Test
+    public void testCheckOnnxRuntimeVersion() {
+        NativeLibraryLoader.checkOnnxRuntimeVersion(NativeLibraryLoader.MIN_ONNX_RUNTIME_VERSION);
+        NativeLibraryLoader.checkOnnxRuntimeVersion("1.23.2");
+        UnsatisfiedLinkError error =
+                assertThrows(
+                        UnsatisfiedLinkError.class,
+                        () -> NativeLibraryLoader.checkOnnxRuntimeVersion("1.20.0"));
+        assertTrue(
+                error.getMessage().contains(NativeLibraryLoader.MIN_ONNX_RUNTIME_VERSION),
+                "Unexpected message: " + error.getMessage());
     }
 
     @Test
